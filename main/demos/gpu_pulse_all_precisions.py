@@ -1,4 +1,4 @@
-# GPU Pulse / Colab single cell. 60-second real CUPTI capture + GEMM throughput.
+# GPU Pulse — Auto-detected NVIDIA GPU / Colab single cell. 60-second real CUPTI capture + GEMM throughput.
 import os, sys, site, json, pathlib, subprocess, importlib.util, tempfile, html
 from importlib.metadata import version, PackageNotFoundError
 
@@ -27,6 +27,7 @@ CAPTURE_SECONDS = 60
 SAMPLE_INTERVAL_NS = 1_000_000_000  # GPU_TIME_INTERVAL: 1 second in nanoseconds
 REPORT_INTERVAL_SECONDS = 1.0  # Common cadence for CUPTI, GEMM and charts
 MAX_SAMPLES = 100_000
+RUN_INDEPENDENT_DIAGNOSTICS = True  # separate post-capture passes; never merged into timeline
 
 # Probe in clean child processes: loading a different .so in this notebook process is unsafe.
 paths = []
@@ -68,126 +69,195 @@ torch.empty(1,device='cuda')
 torch.cuda.synchronize()
 name = torch.cuda.get_device_name(0)
 cap = torch.cuda.get_device_capability(0)
+vram_bytes = int(torch.cuda.get_device_properties(0).total_memory)
 print('GPU:',name,'| compute capability:',cap,flush=True)
 
-supported = profiler_host.get_supported_chips()
-proposals = []
-upper = name.upper()
-if 'B300' in upper or 'GB300' in upper: proposals=['GB300','GB202','GB200','GB100']
-elif 'B200' in upper or 'GB200' in upper: proposals=['GB100','GB200','GB202']
-elif 'H200' in upper or 'H100' in upper: proposals=['GH100']
-elif 'A100' in upper or 'A800' in upper: proposals=['GA100']
-elif 'L40S' in upper or 'L40' in upper: proposals=['AD102']
-elif 'L4' in upper: proposals=['AD104']
-chip = next((x for x in proposals if x in supported),None)
+supported = list(profiler_host.get_supported_chips())
+# First use the device's chip identity if the installed low-level binding exposes it.
+chip = None
+try:
+    from cupti import cupti as _low
+    _params = _low.Device_GetChipName_Params()
+    _params.struct_size = _low.DEVICE_GET_CHIP_NAME_PARAMS_STRUCT_SIZE
+    _params.device_index = 0
+    _low.device_get_chip_name(_params.ptr)
+    _raw_chip = _params.p_chip_name
+    _chip_name = _raw_chip.decode() if isinstance(_raw_chip, bytes) else str(_raw_chip)
+    if _chip_name in supported:
+        chip = _chip_name
+except Exception as _chip_error:
+    print('Direct CUPTI chip lookup unavailable:',str(_chip_error)[:120],flush=True)
+
+# Narrow fallback for known names only. Never guess a different chip merely
+# because its compute-capability major version matches.
 if chip is None:
-    # Unknown GPU: match supported chip prefix to the architecture.
-    architecture = {8:['GA','GA10'],9:['GH','AD'],10:['GB'],12:['GB']}.get(cap[0],[])
-    chip = next((x for x in supported if any(x.startswith(a) for a in architecture)),None)
+    upper=name.upper()
+    aliases = [
+        (('GB300','B300'),('GB300','GB202','GB200')),
+        (('GB200','B200'),('GB200','GB100','GB202')),
+        (('H200','H100'),('GH100',)),
+        (('A100','A800'),('GA100',)),
+        (('L40S','L40'),('AD102',)),
+        (('NVIDIA L4',),('AD104',)),
+    ]
+    for patterns, candidates in aliases:
+        if any(p in upper for p in patterns):
+            chip = next((v for v in candidates if v in supported), None)
+            break
 if chip is None:
-    raise RuntimeError('Supported chip name could not be resolved. Choices: '+repr(supported))
+    raise RuntimeError('Exact CUPTI chip identity unavailable; refuse guessed chip mapping. '
+                       'GPU: '+name+'; supported: '+repr(supported))
 print('CUPTI chip:',chip,flush=True)
 sets = list(profiler_host.get_single_pass_sets(chip))
 print('Single-pass sets:',sets,flush=True)
 
-# NVIDIA uses distinct metric naming across architectures/sets.
-# The following are candidates, NOT guaranteed PM Sampling capabilities.
-BASE = {
- 'gr':'gr__cycles_elapsed.max',
- 'sm':'sm__cycles_elapsed.sum',
- 'read':'dramc__sectors_op_read.sum',
- 'write':'dramc__sectors_op_write.sum',
- 'l1':'l1tex__t_sector_hit_rate.pct',
- 'l2':'lts__average_t_sector_hit_rate_realtime.pct',
- 'fadd':'smsp__sass_thread_inst_executed_op_fadd_pred_on.sum',
- 'fmul':'smsp__sass_thread_inst_executed_op_fmul_pred_on.sum',
- 'ffma':'smsp__sass_thread_inst_executed_op_ffma_pred_on.sum',
- 'tensor_active':'sm__pipe_tensor_cycles_active_realtime.avg.pct_of_peak_sustained_elapsed',
- 'tensor_inst':'smsp__inst_executed_pipe_tensor.sum',
- 'fma_inst':'smsp__inst_executed_pipe_fma.sum',
-}
+# Trigger choice is hardware dependent. GA100 does not support GPU_TIME_INTERVAL.
+if chip.upper().startswith('GA100') or cap[0] <= 7:
+    trigger = pm_sampling.TriggerMode.GPU_SYSCLK_INTERVAL
+    interval = 10_000_000  # 10M SYSCLK cycles; time span measured from timestamps
+else:
+    trigger = pm_sampling.TriggerMode.GPU_TIME_INTERVAL
+    interval = SAMPLE_INTERVAL_NS
+print('PM sampling trigger:',trigger.name,'interval:',interval,flush=True)
 
-# Enumerate metrics actually exposed by each set; never trust GPU model alone.
-catalog = {}
+# Multiple PerfWorks metric names may express one common semantic.
+# Each candidate declares a conversion rule. The catalog is advisory ONLY:
+# L4's Tensor Instructions were absent from Triage catalog but decoded alone.
+CANDIDATES = {
+ 'gr': [('gr__cycles_elapsed.max','cycles')],
+ 'sm': [('sm__cycles_elapsed.sum','cycles')],
+ 'read': [('dramc__sectors_op_read.sum','sectors32'),
+          ('dram__bytes_read.sum','bytes'),
+          ('dram__bytes_read.sum.per_second','bytes_per_second')],
+ 'write':[('dramc__sectors_op_write.sum','sectors32'),
+          ('dram__bytes_write.sum','bytes'),
+          ('dram__bytes_write.sum.per_second','bytes_per_second')],
+ 'l1': [('l1tex__t_sector_hit_rate.pct','percent')],
+ 'l2': [('lts__average_t_sector_hit_rate_realtime.pct','percent'),
+        ('lts__t_sector_hit_rate.pct','percent')],
+ 'tensor_active': [
+    ('sm__pipe_tensor_cycles_active_realtime.avg.pct_of_peak_sustained_elapsed','percent')],
+ 'fadd':[('smsp__sass_thread_inst_executed_op_fadd_pred_on.sum','instructions')],
+ 'fmul':[('smsp__sass_thread_inst_executed_op_fmul_pred_on.sum','instructions')],
+ 'ffma':[('smsp__sass_thread_inst_executed_op_ffma_pred_on.sum','instructions')],
+ 'tensor_inst':[('smsp__inst_executed_pipe_tensor.sum','instructions')],
+ 'fma_inst':[('smsp__inst_executed_pipe_fma.sum','instructions')],
+}
+PRIORITY = {'read':100,'write':100,'l1':80,'l2':80,
+            'tensor_active':75,'sm':40,'gr':40,
+            'fadd':25,'fmul':25,'ffma':25}
+# Tensor/FMA instructions are normally handled in their own diagnostic passes.
+BASELINE_KEYS=['read','write','l1','l2','tensor_active','sm','gr']
+
+catalog={}
 for s in sets:
     try:
-        catalog[s] = list(profiler_host.get_metrics_in_single_pass_set(chip,s))
+        catalog[s]=list(profiler_host.get_metrics_in_single_pass_set(chip,s))
         print('Set',s,'catalog entries:',len(catalog[s]),flush=True)
-    except Exception as e:
-        print('Catalog failed',s,repr(e),flush=True)
+    except Exception as exc:
+        print('Catalog failed',s,repr(exc),flush=True)
 
-# Probing individual settings determines which metrics this runtime accepts.
-# First prefer the successful six-counter baseline, then test additions.
-priority_sets = [s for s in ['TriageSCG','TriageAC'] if s in sets]
-priority_sets += [s for s in sets if s not in priority_sets]
-priority_sets += [None]
-
-errors = []
-def configure(keys, set_name):
-    c = pm_sampling.Collector(device_index=0)
+errors=[]
+def configure(metric_names,set_name, sampling_interval=None):
+    c=pm_sampling.Collector(device_index=0)
     try:
         c.enable()
-        kw = dict(metrics=[BASE[k] for k in keys],
-                  hardware_buffer_size=256*1024*1024,
-                  sampling_interval=SAMPLE_INTERVAL_NS,
-                  trigger_mode=pm_sampling.TriggerMode.GPU_TIME_INTERVAL)
-        if set_name is not None: kw['single_pass_metric_set_name']=set_name
+        kw=dict(metrics=metric_names,
+                hardware_buffer_size=256*1024*1024,
+                sampling_interval=int(sampling_interval or interval),
+                trigger_mode=trigger)
+        if set_name is not None:
+            kw['single_pass_metric_set_name']=set_name
         c.configure(**kw)
         return c
-    except Exception as e:
-        errors.append((str(set_name),list(keys),str(e)[:140]))
-        try: c.disable()
-        except Exception: pass
+    except Exception as exc:
+        errors.append((str(set_name),metric_names[-1:] if metric_names else [],str(exc)[:180]))
+        try:c.disable()
+        except Exception:pass
         return None
 
-main = ['gr','sm','read','write','l1','l2']
-chosen_set=None; chosen=[]; collector=None
-for s in priority_sets:
-    c=configure(main,s)
-    if c is not None:
-        collector=c; chosen=list(main); chosen_set=s; break
-if collector is None:
-    # Keep the best successful collector alive; close other candidates.
-    best_collector = None
-    best_keys = []
-    best_set = None
-    for s in priority_sets:
-        trial_keys = []
-        trial_collector = None
-        for k in main:
-            candidate = configure(trial_keys + [k], s)
-            if candidate is not None:
-                if trial_collector is not None:
-                    trial_collector.disable()
-                trial_collector = candidate
-                trial_keys.append(k)
-        if len(trial_keys) > len(best_keys):
-            if best_collector is not None:
-                best_collector.disable()
-            best_collector = trial_collector
-            best_keys = trial_keys
-            best_set = s
-        elif trial_collector is not None:
-            trial_collector.disable()
-    collector = best_collector
-    chosen = best_keys
-    chosen_set = best_set
-if collector is None:
-    raise RuntimeError('No baseline PM Sampling metrics: '+repr(errors[-12:]))
-print('Baseline config:',chosen,'set=',chosen_set,flush=True)
-for cache_key in ('l1','l2'):
-    print('CACHE', cache_key.upper(),
-          'CONFIGURED' if cache_key in chosen else 'UNAVAILABLE (N/A)',flush=True)
+priority_sets=[k for k in ('TriageSCG','TriageAC') if k in sets]
+priority_sets.extend(s for s in sets if s not in priority_sets)
+priority_sets.append(None)  # allow default configuration to be tried, not assumed
 
-# Extend only with metrics truly accepted together by the GPU PM sampler.
-for k in ['fadd','fmul','ffma','tensor_active','tensor_inst','fma_inst']:
-    c=configure(chosen+[k],chosen_set)
-    if c:
-        collector.disable()
-        collector=c; chosen.append(k)
-        print('Added:',k,flush=True)
-    else:
-        print('Not single-pass compatible:',k,flush=True)
+# CRITICAL: At most one enabled CUPTI Collector at any time.
+# Previous adaptive code left an enabled collector alive while probing another:
+# this caused spurious configuration failures and N/A metric regressions.
+# Probe each candidate, then immediately disable it; select specifications
+# (not live Collector objects), and enable the winning collector only once.
+def probe_metric_map(mapping, set_name):
+    candidate = configure([item['metric'] for item in mapping.values()], set_name)
+    if candidate is None:
+        return False
+    try:
+        return True
+    finally:
+        candidate.disable()
+
+selection_orders = [
+    ['gr','sm','read','write','l1','l2','tensor_active'],
+    ['read','write','l1','l2','tensor_active','sm','gr'],
+    ['l1','l2','read','write','tensor_active','sm','gr'],
+    ['write','read','l2','l1','tensor_active','sm','gr'],
+    ['tensor_active','read','write','l1','l2','sm','gr'],
+]
+best=None
+best_score=-1
+for set_name in priority_sets:
+    # Restore the previously demonstrated six-counter baseline first.
+    base_keys=['gr','sm','read','write','l1','l2']
+    baseline={k:{'metric':CANDIDATES[k][0][0],
+                 'normalization':CANDIDATES[k][0][1]} for k in base_keys}
+    if probe_metric_map(baseline,set_name):
+        plus={**baseline,'tensor_active':{'metric':CANDIDATES['tensor_active'][0][0],
+                                         'normalization':'percent'}}
+        candidate=plus if probe_metric_map(plus,set_name) else baseline
+        score=sum(PRIORITY[k] for k in candidate)
+        if score>best_score:
+            best={'chosen_set':set_name,'selected':candidate.copy()}
+            best_score=score
+        print('KNOWN BASELINE:',set_name,'configured',list(candidate),flush=True)
+    for selection_order in selection_orders:
+        selected={}
+        for key in selection_order:
+            for metric,normalization in CANDIDATES[key]:
+                candidate_map={**selected,key:{'metric':metric,'normalization':normalization}}
+                if probe_metric_map(candidate_map,set_name):
+                    selected=candidate_map
+                    break
+        if not selected:
+            continue
+        score=sum(PRIORITY[k] for k in selected)
+        if score>best_score:
+            best={'chosen_set':set_name,'selected':selected.copy()}
+            best_score=score
+if best is None:
+    raise RuntimeError('No valid PM Sampling configuration for '+chip+'; recent errors='+repr(errors[-8:]))
+chosen_set=best['chosen_set']
+selected=best['selected']
+chosen=list(selected)
+print('Adaptive PM selection:', chosen_set,chosen,flush=True)
+for key in ('read','write','l1','l2','tensor_active'):
+    print('SEMANTIC',key,'=>',selected[key]['metric'] if key in selected else 'N/A',flush=True)
+
+# Optional SASS triplet: probe without an existing enabled collector.
+fp32_keys=('fadd','fmul','ffma')
+fp32_candidates={k:{'metric':CANDIDATES[k][0][0], 'normalization':'instructions'} for k in fp32_keys}
+with_fp32={**selected,**fp32_candidates}
+if probe_metric_map(with_fp32,chosen_set):
+    selected=with_fp32
+    chosen=list(selected)
+    print('Hardware FP32 SASS triplet added',flush=True)
+else:
+    print('Hardware FP32 SASS triplet unavailable; remain N/A',flush=True)
+
+# Enable the actual collector only after every probe collector has been disabled.
+collector=configure([x['metric'] for x in selected.values()], chosen_set)
+if collector is None:
+    raise RuntimeError('Final selected CUPTI configuration failed: '+repr(selected))
+
+# Save a manifest of concrete requested metrics and their conversion rules.
+metric_manifest=selected.copy()
 
 # Six controlled load phases (seconds): 0-8 idle, 8-20 tensor ramp,
 # 20-32 FP32 ramp, 32-42 bandwidth, 42-54 mixed, 54-60 cooldown.
@@ -336,8 +406,101 @@ finally:
         except Exception: pass
     collector.disable()
 
-out={'gpu':name,'chip':chip,'set':chosen_set,'chosen':chosen,'metrics':metrics,
-     'samples':rows,'fp32_gemm':fp32,'fp16_gemm':fp16,'flops_points':throughput_points,
+# Independent diagnostic passes: these DO NOT share time windows with the
+# baseline and MUST NOT be plotted on the same timeline or summed together.
+diagnostics={}
+if os.environ.get('GPU_PULSE_INDEPENDENT_DIAGNOSTICS','1')=='1':
+    for key,kind in [('tensor_inst','fp16'),('fma_inst','fp32')]:
+        metric=CANDIDATES[key][0][0]
+        record={'status':'UNAVAILABLE','metric':metric,'mode':'SEPARATE_PASS',
+                'valid_samples':0,'rate_per_second':None,'detail':'',
+                'nonzero_samples':0,'operations':0,'sum_instructions':None,
+                'sampled_seconds':None,'max_sample_value':None}
+        dc=None;started_diag=False
+        try:
+            diag_interval=10_000_000 if trigger==pm_sampling.TriggerMode.GPU_SYSCLK_INTERVAL else 100_000_000
+            ds=None
+            for set_name in priority_sets:
+                dc=configure([metric],set_name,sampling_interval=diag_interval)
+                if dc is not None:
+                    ds=set_name
+                    break
+            if dc is None:
+                record['detail']='Standalone configure failed on all tested sets'
+            else:
+                record['metric_set']=ds
+                # Warm up the exact kernel used during this diagnostic pass.
+                # The collector is already configured, but sampling starts only
+                # after warmup. This mirrors the successful standalone L4 probe.
+                for _ in range(6):
+                    if kind=='fp16': torch.mm(T,U,out=V)
+                    else: torch.mm(A,B,out=O)
+                torch.cuda.synchronize()
+                dc.start();started_diag=True
+                deadline=time.monotonic()+3.0
+                n=0
+                while time.monotonic()<deadline:
+                    if kind=='fp16':torch.mm(T,U,out=V)
+                    else:torch.mm(A,B,out=O)
+                    n+=1
+                    if n%8==0:torch.cuda.synchronize()
+                torch.cuda.synchronize()
+                record['operations']=n
+                dc.stop();started_diag=False
+                batch=dc.decode(max_samples=MAX_SAMPLES)
+                names=list(batch.metrics)
+                if metric not in names:
+                    record['detail']='Decode did not return requested metric'
+                else:
+                    idx=names.index(metric)
+                    observed=[]
+                    for sample in batch:
+                        st=int(sample.start_timestamp);en=int(sample.end_timestamp)
+                        if en>st:
+                            val=float(sample.metric_values[idx]);dur=(en-st)/1e9
+                            if math.isfinite(val) and dur>0:
+                                observed.append((val,dur))
+                    record['valid_samples']=len(observed)
+                    if observed:
+                        total_inst=sum(v for v,d in observed)
+                        total_seconds=sum(d for v,d in observed)
+                        nonzero=sum(v!=0 for v,d in observed)
+                        record['sum_instructions']=total_inst
+                        record['sampled_seconds']=total_seconds
+                        record['nonzero_samples']=nonzero
+                        record['max_sample_value']=max(v for v,d in observed)
+                        record['rate_per_second']=total_inst/total_seconds
+                        if nonzero:
+                            record['status']='MEASURED'
+                            record['detail']='Nonzero instructions from independent diagnostic pass; not FLOP/s'
+                        else:
+                            record['status']='ZERO_ONLY'
+                            record['detail']='Decoded samples all zero despite GEMM submissions; inspect workload/counter compatibility'
+                    else:
+                        record['detail']='No valid decoded samples'
+        except Exception as exc:
+            record['status']='ERROR'
+            record['detail']=str(exc)[:240]
+        finally:
+            if dc is not None:
+                if started_diag:
+                    try:dc.stop()
+                    except Exception:pass
+                try:dc.disable()
+                except Exception:pass
+        diagnostics[key]=record
+        print('DIAGNOSTIC',key,record['status'],
+              'samples:',record['valid_samples'],
+              'nonzero:',record['nonzero_samples'],
+              'gemms:',record['operations'],
+              'total instructions:',record['sum_instructions'],
+              'rate/s:',record['rate_per_second'],
+              'detail:',record['detail'],flush=True)
+
+out={'gpu':name,'chip':chip,'compute_capability':list(cap),'vram_bytes':vram_bytes,'set':chosen_set,'chosen':chosen,'metrics':metrics,
+     'samples':rows,'metric_manifest':metric_manifest,'diagnostics':diagnostics,
+     'trigger_mode':trigger.name,'sampling_interval':int(interval),
+     'fp32_gemm':fp32,'fp16_gemm':fp16,'flops_points':throughput_points,
      'catalog_sizes':{k:len(v) for k,v in catalog.items()},'failed_attempts':len(errors),
      'phases':PHASES,'phase_points':phase_points}
 with open(os.environ['GPU_PULSE_OUT'],'w') as f: json.dump(out,f)
@@ -352,6 +515,7 @@ env['GPU_PULSE_CAPTURE_SECONDS']=str(CAPTURE_SECONDS)
 env['GPU_PULSE_SAMPLE_INTERVAL_NS']=str(SAMPLE_INTERVAL_NS)
 env['GPU_PULSE_REPORT_INTERVAL_SECONDS']=str(REPORT_INTERVAL_SECONDS)
 env['GPU_PULSE_MAX_SAMPLES']=str(MAX_SAMPLES)
+env['GPU_PULSE_INDEPENDENT_DIAGNOSTICS']='1' if RUN_INDEPENDENT_DIAGNOSTICS else '0'
 r=subprocess.run([sys.executable,'-c',CHILD],env=env,text=True,capture_output=True)
 print(r.stdout)
 if r.returncode:
@@ -360,15 +524,9 @@ if r.returncode:
 with open(output_path) as f: result=json.load(f)
 
 metrics=result['metrics']; lookup={m:i for i,m in enumerate(metrics)}
-keys={'gr':'gr__cycles_elapsed.max','sm':'sm__cycles_elapsed.sum',
-      'read':'dramc__sectors_op_read.sum','write':'dramc__sectors_op_write.sum',
-      'l1':'l1tex__t_sector_hit_rate.pct','l2':'lts__average_t_sector_hit_rate_realtime.pct',
-      'fadd':'smsp__sass_thread_inst_executed_op_fadd_pred_on.sum',
-      'fmul':'smsp__sass_thread_inst_executed_op_fmul_pred_on.sum',
-      'ffma':'smsp__sass_thread_inst_executed_op_ffma_pred_on.sum',
-      'tensor_active':'sm__pipe_tensor_cycles_active_realtime.avg.pct_of_peak_sustained_elapsed',
-      'tensor_inst':'smsp__inst_executed_pipe_tensor.sum',
-      'fma_inst':'smsp__inst_executed_pipe_fma.sum'}
+manifest=result.get('metric_manifest',{})
+keys={k:v['metric'] for k,v in manifest.items()}
+normalizations={k:v['normalization'] for k,v in manifest.items()}
 rows=[]
 for s in result['samples']:
     row={'time_ns':s['end_ns'],'dt_s':(s['end_ns']-s['start_ns'])/1e9}
@@ -380,7 +538,12 @@ df=pd.DataFrame(rows)
 df['time_s']=(df.time_ns-df.time_ns.iloc[0])/1e9
 df['window']=(df.time_s/REPORT_INTERVAL_SECONDS).astype(int)
 for side in ('read','write'):
-    if side in df: df[side+'_bytes']=df[side]*32
+    if side in df:
+        kind=normalizations.get(side)
+        if kind=='sectors32':df[side+'_bytes']=df[side]*32
+        elif kind=='bytes':df[side+'_bytes']=df[side]
+        elif kind=='bytes_per_second':df[side+'_bytes']=df[side]*df.dt_s
+        else:print('Skipping unknown bandwidth unit:',side,kind)
 
 aggregations={'time_s':('time_s','mean'),'duration':('dt_s','sum')}
 for k in keys:
@@ -410,32 +573,146 @@ if all(k in df for k in ('fadd','fmul','ffma')):
 
 def fmt(x,dec=2): return 'N/A' if x is None or not np.isfinite(x) else f'{x:,.{dec}f}'
 DASHBOARD_WIDTH = 1080  # Same fixed outer width for cards and both Plotly charts
+# One detected hardware label reused across every dashboard panel.
+# VRAM is reported in binary GiB, never assumed from a product name.
+GPU_DISPLAY_NAME = str(result['gpu'])
+GPU_DISPLAY_HTML = html.escape(GPU_DISPLAY_NAME)
+GPU_MEMORY_GIB = result.get('vram_bytes', 0) / (1024 ** 3)
+GPU_DISPLAY_DETAILS = f"{GPU_MEMORY_GIB:.1f} GiB VRAM | SM {'.'.join(map(str, result.get('compute_capability', [])))}"
 
-def card(label,value,unit,color='#60a5fa'):
-    return f'<div style="background:#172033;border:1px solid #303c50;border-radius:12px;padding:16px;box-sizing:border-box;min-width:0">' \
-           f'<div style="color:#9caac0;font-size:12px">{label}</div>' \
-           f'<div style="color:{color};font-size:26px;font-weight:700;margin:8px 0">{value}</div>' \
-           f'<div style="color:#8190a6;font-size:11px">{unit}</div></div>'
+
+# Curated *static* product specifications. No website scraping at runtime.
+# TechPowerUp data references are explicit. The numeric Tensor Core values
+# are non-sparse (dense) rates, not ordinary shader FP16 rates.
+GPU_PEAK_DATABASE = {
+    "NVIDIA L4": {
+        "fp32_cuda_tflops": 30.3, "fp16_tensor_dense_tflops": 121.0,
+        "dram_bandwidth_gbps": 300.0,
+        "source": "https://www.techpowerup.com/gpu-specs/l4.c4091",
+        "crosscheck": "https://www.nvidia.com/en-us/data-center/l4/",
+        "variant": "L4 24GB PCIe",
+    },
+    "NVIDIA A100 40GB": {
+        "fp32_cuda_tflops": 19.5, "fp16_tensor_dense_tflops": 312.0,
+        "dram_bandwidth_gbps": 1555.0,
+        "source": "https://www.techpowerup.com/267106/nvidia-ga100-scalar-processor-specs-sheet-released",
+        "crosscheck": "https://www.nvidia.com/en-us/data-center/a100/",
+        "variant": "A100 40GB (full GPU; PCIe/SXM peak compute)",
+    },
+}
+
+
+def resolve_gpu_peak(gpu_name, vram_bytes):
+    """Match an exact device family & memory SKU, never just its chip codename.
+
+    Unrecognized models, A100 80GB and MIG partitions deliberately return None.
+    """
+    import re
+    name = str(gpu_name).upper()
+    if "MIG" in name:
+        return None, "MIG partition: full-GPU theoretical peak is not comparable"
+    if re.search(r"\bL4\b", name) and "L40" not in name:
+        return GPU_PEAK_DATABASE["NVIDIA L4"], None
+    if "A100" in name and "A800" not in name:
+        # CUDA may report 40 GB as ~39.5 GiB (binary units).
+        gib = float(vram_bytes or 0) / (1024 ** 3)
+        if "80GB" in name or "80 GB" in name or gib > 60:
+            return None, "A100 80GB needs a distinct product-spec entry"
+        if "40GB" in name or "40 GB" in name or 35 <= gib < 45:
+            return GPU_PEAK_DATABASE["NVIDIA A100 40GB"], None
+    return None, "No verified static specification for this exact GPU SKU"
+
+
+def peak_achievement(measured, peak):
+    if peak is None or measured is None:
+        return None
+    if not np.isfinite(measured) or not np.isfinite(peak) or peak <= 0:
+        return None
+    return 100.0 * measured / peak
+
+
+GPU_PEAK, GPU_PEAK_REASON = resolve_gpu_peak(result['gpu'], result.get('vram_bytes'))
+GPU_PEAK_SOURCE = GPU_PEAK['source'] if GPU_PEAK else None
+GPU_PEAK_FP16 = GPU_PEAK['fp16_tensor_dense_tflops'] if GPU_PEAK else None
+GPU_PEAK_FP32 = GPU_PEAK['fp32_cuda_tflops'] if GPU_PEAK else None
+GPU_PEAK_DRAM = GPU_PEAK['dram_bandwidth_gbps'] if GPU_PEAK else None
+# A combined read+write DRAM rate is comparable with peak *total* DRAM bandwidth.
+GPU_DRAM_TOTAL_NOW = (read_now + write_now) if read_now is not None and write_now is not None else None
+GPU_PEAK_COMPARISONS = [
+    ('Tensor FP16 GEMM (active)', result['fp16_gemm']['effective_tflops'], GPU_PEAK_FP16, 'TFLOP/s'),
+    ('CUDA FP32 GEMM (active)', result['fp32_gemm']['effective_tflops'], GPU_PEAK_FP32, 'TFLOP/s'),
+    ('DRAM read + write (recent)', GPU_DRAM_TOTAL_NOW, GPU_PEAK_DRAM, 'GB/s'),
+]
+
+
+def card(label,value,unit,color='#60a5fa',peak=None,peak_unit=None):
+    """One card per metric; show measured, rated peak and achievement together."""
+    peak_detail = ''
+    if peak is not None:
+        achieved = peak_achievement(value, peak)
+        pct_label = f'{fmt(achieved, 1)}%' if achieved is not None else 'N/A'
+        peak_detail = (
+            f'<div style="border-top:1px solid #303c50;padding-top:9px;margin-top:9px;'
+            f'color:#a9bad1;font-size:11px">'
+            f'Peak <b style="color:#edf2fc">{fmt(peak, 1)} {peak_unit or unit}</b>'
+            f'<span style="float:right">Achieved <b style="color:{color}">{pct_label}</b></span>'
+            f'</div>'
+        )
+    return (f'<div style="background:#172033;border:1px solid #303c50;'
+            f'border-radius:0;padding:16px;box-sizing:border-box;min-width:0">'
+            f'<div style="color:#9caac0;font-size:12px">{label}</div>'
+            f'<div style="color:{color};font-size:26px;font-weight:700;margin:8px 0">{fmt(value)}</div>'
+            f'<div style="color:#8190a6;font-size:11px">{unit}</div>'
+            f'{peak_detail}</div>')
 
 cards=[
- card('Tensor FP16 GEMM',fmt(result['fp16_gemm']['effective_tflops']),'active GEMM TFLOP/s · CUDA events','#a78bfa'),
- card('CUDA FP32 GEMM',fmt(result['fp32_gemm']['effective_tflops']),'active GEMM TFLOP/s · CUDA events','#a78bfa'),
- card('FP32 Hardware',fmt(hardware_fp32),'TFLOP/s · CUPTI counters','#60a5fa'),
- card('Tensor Pipe Active',fmt(recent_mean('tensor_active')),'% of peak · CUPTI','#fbbf24'),
- card('DRAM Read',fmt(read_now),'GB/s · CUPTI','#34d399'),
- card('DRAM Write',fmt(write_now),'GB/s · CUPTI','#34d399'),
- card('L1 Cache Hit',fmt(recent_mean('l1'),4),'raw .pct · CUPTI','#fbbf24'),
- card('L2 Cache Hit',fmt(recent_mean('l2')),'% · CUPTI','#fbbf24'),
- card('GR Cycles',fmt(recent_mean('gr'),0),'cycles/sample','#38bdf8'),
- card('SM Cycles',fmt(recent_mean('sm'),0),'cycles/sample','#38bdf8'),
- card('Tensor Instructions',fmt(recent_mean('tensor_inst'),0),'instructions/sample · not FLOPs','#f472b6'),
- card('FMA Instructions',fmt(recent_mean('fma_inst'),0),'instructions/sample · not FLOPs','#f472b6'),
+ card('Tensor FP16 GEMM',result['fp16_gemm']['effective_tflops'],
+      'Active GEMM TFLOP/s · CUDA events','#a78bfa',GPU_PEAK_FP16,'TFLOP/s'),
+ card('CUDA FP32 GEMM',result['fp32_gemm']['effective_tflops'],
+      'Active GEMM TFLOP/s · CUDA events','#34d399',GPU_PEAK_FP32,'TFLOP/s'),
+ card('FP32 Hardware',hardware_fp32,'TFLOP/s · CUPTI counters','#60a5fa'),
+ card('Tensor Pipe Active',recent_mean('tensor_active'),'% of peak · CUPTI','#fbbf24'),
+ card('DRAM Read',read_now,'GB/s · CUPTI','#34d399'),
+ card('DRAM Write',write_now,'GB/s · CUPTI','#34d399'),
+ card('L1 Cache Hit',recent_mean('l1'),'raw .pct · CUPTI','#fbbf24'),
+ card('L2 Cache Hit',recent_mean('l2'),'% · CUPTI','#fbbf24'),
+ # GR/SM elapsed cycles are displayed below as two independent time-series.
+ # The rollups (.max for GR, .sum for SM) are not directly comparable.
+ 
+ card('DRAM Read + Write',GPU_DRAM_TOTAL_NOW,'Recent combined GB/s · CUPTI','#60a5fa',GPU_PEAK_DRAM,'GB/s'),
 ]
-display(HTML(f'<div style="background:#0b1220;color:white;padding:24px;border-radius:16px;font-family:Arial;box-sizing:border-box;width:{DASHBOARD_WIDTH}px;max-width:100%;margin:0 auto">'
-    '<h2 style="margin:0">GPU PULSE</h2><p style="color:#91a0b7;font-size:12px">REAL HARDWARE COUNTERS + MEASURED GEMM THROUGHPUT</p>'
-    '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;width:100%">'+''.join(cards)+'</div>'
-    f'<p style="color:#91a0b7;font-size:12px;margin:18px 0 0">GPU: {html.escape(result["gpu"])} | Chip: {html.escape(result["chip"])} | '
-    f'Samples: {len(df)} | Duration: {df.dt_s.sum():.1f}s | Set: {html.escape(str(result["set"]))} | Real CUPTI / CUDA events</p></div>'))
+# Keep core cards visible even when a GPU cannot provide a counter.
+# N/A is meaningful: never silently drop DRAM, cache, or activity tiles.
+# A capability report at the bottom explains any unavailable values.
+display(HTML(
+    f'<div style="background:#0b1220;color:white;padding:24px;border-radius:0;'
+    f'font-family:Arial;box-sizing:border-box;width:{DASHBOARD_WIDTH}px;max-width:100%;margin:0 auto">'
+    f'<h2 style="margin:0">GPU PULSE | {GPU_DISPLAY_HTML}</h2>'
+    '<p style="color:#91a0b7;font-size:12px">REAL HARDWARE COUNTERS + MEASURED GEMM THROUGHPUT</p>'
+    '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;width:100%">'
+    + ''.join(cards) + '</div>'
+    f'<p style="color:#91a0b7;font-size:12px;margin:18px 0 0">'
+    f'GPU: {html.escape(result["gpu"])} | Chip: {html.escape(result["chip"])} | '
+    f'{GPU_DISPLAY_DETAILS} | Samples: {len(df)} | Duration: {df.dt_s.sum():.1f}s | '
+    f'Set: {html.escape(str(result["set"]))} | Real CUPTI / CUDA events</p>'
+    '</div>'
+))
+
+_peak_caption = (
+    'Peak values are static GPU-SKU specifications (dense FP16 Tensor, CUDA FP32, total DRAM). '
+    'Measured GEMM values use CUDA event active time; DRAM uses recent CUPTI sampling. '
+    'Peak comparisons are indicative and are not device-wide hardware FLOP measurements.'
+)
+_peak_source_html = (
+    f'<a style="color:#93c5fd" href="{html.escape(GPU_PEAK_SOURCE)}">TechPowerUp source</a>'
+    if GPU_PEAK_SOURCE else html.escape(str(GPU_PEAK_REASON))
+)
+display(HTML(
+    f'<div style="width:{DASHBOARD_WIDTH}px;max-width:100%;box-sizing:border-box;'
+    f'padding:8px 24px;margin:0 auto;color:#9baac0;background:#0b1220;'
+    f'font:11px Arial;border:1px solid #303c50;border-radius:0">'
+    f'{_peak_caption} Source: {_peak_source_html}</div>'
+))
 
 # Display phase boundaries against the common elapsed-time axis.
 phases=result['phases']
@@ -468,16 +745,28 @@ for kind,label,color in [
                       '<br>GEMMs=%{customdata[0]}'
                       '<br>CUDA event=%{customdata[1]:.3f}s<extra>%{fullData.name}</extra>'
     ))
+# Toggleable theoretical reference lines (hidden by default to preserve time-series y-axis resolution).
+for _peak, _label, _color in (
+        (GPU_PEAK_FP16, 'FP16 Tensor dense theoretical peak', '#e9a7ff'),
+        (GPU_PEAK_FP32, 'FP32 CUDA theoretical peak', '#95eac3')):
+    if _peak is not None:
+        fig_flops.add_trace(go.Scatter(
+            x=[0, CAPTURE_SECONDS], y=[_peak, _peak], mode='lines',
+            name=_label, visible='legendonly', line=dict(color=_color, width=1.5, dash='dash'),
+            hovertemplate='Theoretical peak: %{y:.1f} TFLOP/s<extra>%{fullData.name}</extra>'
+        ))
 add_phases(fig_flops)
 fig_flops.update_layout(
-    title='GPU Pulse | Real GEMM FLOPs / 1-second window (varying workload)',
+    title=f'GPU Pulse | {GPU_DISPLAY_NAME} · Real GEMM FLOPs / 1-second window',
     xaxis_title='Capture time (s)',yaxis_title='Workload TFLOP/s · 1s wall window',
     template='plotly_dark',paper_bgcolor='#0b1220',plot_bgcolor='#111827',
     width=DASHBOARD_WIDTH,autosize=False,
     height=520,hovermode='x unified',
-    legend=dict(orientation='h',x=.5,xanchor='center',y=-.20,yanchor='top',
-                font=dict(size=11),traceorder='normal'),
-    margin=dict(l=80,r=50,t=90,b=120))
+    legend=dict(orientation='h',x=0.99,xanchor='right',y=0.99,yanchor='top',
+                bgcolor='rgba(11,18,32,0.84)',font=dict(size=11),traceorder='normal'),
+    margin=dict(l=80,r=50,t=90,b=65))
+fig_flops.update_xaxes(showline=True,linecolor='#303c50',mirror=True)
+fig_flops.update_yaxes(showline=True,linecolor='#303c50',mirror=True)
 fig_flops.show()
 
 fig=make_subplots(rows=3,cols=1,shared_xaxes=True,vertical_spacing=.10,
@@ -492,19 +781,124 @@ for row,key,label,color in lines:
         fig.add_trace(go.Scatter(x=agg.time_s,y=agg[key],name=label,
                      mode='lines+markers',line=dict(color=color,width=2),
                      marker=dict(size=3)),row=row,col=1)
+# Missing metric annotations prevent silent gaps on the hardware chart.
+for _row,_required,_label in [
+    (1,('read_gbps','write_gbps'),'DRAM Read / Write'),
+    (2,('l1','l2'),'L1 / L2 Cache Hit'),
+]:
+    missing=[k for k in _required if k not in agg or not agg[k].notna().any()]
+    if missing:
+        fig.add_annotation(x=0.5,y=0.52,xref='x domain',
+            yref=('y domain' if _row==1 else 'y2 domain'),
+            text=f'{_label}: unavailable metrics: '+', '.join(missing),
+            showarrow=False,font=dict(size=11,color='#ffb4b4'))
+# Independent per-subplot legends keep cache/DRAM labels near their series.
+for _trace in fig.data:
+    _subplot_yaxis = getattr(_trace, 'yaxis', 'y') or 'y'
+    _trace.legend = {'y': 'legend', 'y2': 'legend2', 'y3': 'legend3'}.get(
+        _subplot_yaxis, 'legend')
+# Compare aggregate DRAM traffic to aggregate bandwidth, not each direction.
+if 'read_gbps' in agg and 'write_gbps' in agg:
+    _dram_total = agg['read_gbps'] + agg['write_gbps']
+    fig.add_trace(go.Scatter(x=agg.time_s,y=_dram_total,
+        name='DRAM Read + Write',mode='lines',
+        line=dict(color='#fbbf24',width=2),legend='legend'),row=1,col=1)
+if GPU_PEAK_DRAM is not None:
+    fig.add_trace(go.Scatter(x=[0,CAPTURE_SECONDS], y=[GPU_PEAK_DRAM]*2,
+        name='DRAM theoretical bandwidth',mode='lines', visible='legendonly',
+        line=dict(color='#f59e0b',dash='dash',width=1.5),legend='legend'),row=1,col=1)
 add_phases(fig)
-fig.update_layout(title='GPU Pulse | CUPTI Hardware Timeline',
+# Plotly supports independent legends; position each just inside its subplot.
+# This also avoids pushing the bottom legend far below all three panels.
+_legend_style = dict(orientation='h',x=0.99,xanchor='right',yanchor='top',
+                     bgcolor='rgba(11,18,32,0.86)',font=dict(size=10))
+fig.update_layout(title=f'GPU Pulse | {GPU_DISPLAY_NAME} · CUPTI Hardware Timeline',
                   template='plotly_dark',paper_bgcolor='#0b1220',
                   plot_bgcolor='#111827',height=880,hovermode='x unified',
                   width=DASHBOARD_WIDTH,autosize=False,
-                  legend=dict(orientation='h',x=.5,xanchor='center',y=-.13,yanchor='top',
-                              font=dict(size=11),traceorder='normal'),
-                  margin=dict(l=80,r=50,t=95,b=130))
+                  legend=dict(**_legend_style,y=fig.layout.yaxis.domain[1]-0.015),
+                  legend2=dict(**_legend_style,y=fig.layout.yaxis2.domain[1]-0.015),
+                  legend3=dict(**_legend_style,y=fig.layout.yaxis3.domain[1]-0.015),
+                  margin=dict(l=80,r=50,t=95,b=70))
 fig.update_yaxes(title_text='GB/s',row=1,col=1)
 fig.update_yaxes(title_text='Hit (%)',row=2,col=1)
 fig.update_yaxes(title_text='TFLOP/s',row=3,col=1)
 fig.update_xaxes(title_text='Capture time (s)',row=3,col=1)
+fig.update_xaxes(showline=True,linecolor='#303c50',mirror=True)
+fig.update_yaxes(showline=True,linecolor='#303c50',mirror=True)
 fig.show()
+
+# =============================================================
+# HARDWARE DETAIL — GR / SM elapsed-cycle timelines
+# The raw PM rollups differ: gr__cycles_elapsed.max vs
+# sm__cycles_elapsed.sum. Preserve separate vertical scales.
+# Average per 1-second report window is in billions of cycles
+# per PM sample, *not* utilization, occupancy or FLOP/s.
+# =============================================================
+_cycle_fig = make_subplots(
+    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.13,
+    subplot_titles=(
+        'GR elapsed cycles — max rollup',
+        'SM elapsed cycles — sum over SMs',
+    ),
+)
+_cycle_series = [
+    (1, 'gr', 'GR cycles', '#38bdf8'),
+    (2, 'sm', 'SM cycles', '#a78bfa'),
+]
+for _cycle_row, _cycle_key, _cycle_label, _cycle_color in _cycle_series:
+    if _cycle_key in agg and agg[_cycle_key].notna().any():
+        _cycle_y = agg[_cycle_key].astype(float) / 1e9
+        _cycle_fig.add_trace(
+            go.Scatter(
+                x=agg.time_s, y=_cycle_y,
+                name=_cycle_label, mode='lines+markers',
+                line=dict(width=2, color=_cycle_color),
+                marker=dict(size=3),
+                customdata=agg[_cycle_key].astype(float).to_numpy(),
+                hovertemplate=(
+                    'Time: %{x:.1f}s<br>'
+                    'Cycles: %{customdata:,.0f} / sample<br>'
+                    'Billions: %{y:.3f} B/sample<extra>%{fullData.name}</extra>'
+                ),
+                showlegend=False,
+            ),
+            row=_cycle_row, col=1,
+        )
+    else:
+        _cycle_fig.add_annotation(
+            x=0.5, y=0.5,
+            xref='x domain' if _cycle_row == 1 else 'x2 domain',
+            yref='y domain' if _cycle_row == 1 else 'y2 domain',
+            text=f'{_cycle_label}: N/A (CUPTI metric unavailable)',
+            showarrow=False, font=dict(size=12, color='#ffb4b4'),
+        )
+add_phases(_cycle_fig)
+_cycle_fig.update_layout(
+    title=f'GPU Pulse | {GPU_DISPLAY_NAME} · Hardware Detail — Elapsed Cycles',
+    template='plotly_dark', paper_bgcolor='#0b1220',
+    plot_bgcolor='#111827', width=DASHBOARD_WIDTH, autosize=False,
+    height=570, hovermode='x unified',
+    margin=dict(l=90, r=50, t=95, b=75),
+    showlegend=False,
+)
+_cycle_fig.update_yaxes(title_text='B cycles / sample', row=1, col=1)
+_cycle_fig.update_yaxes(title_text='B cycles / sample', row=2, col=1)
+_cycle_fig.update_xaxes(title_text='Capture time (s)', row=2, col=1)
+_cycle_fig.update_xaxes(showline=True, linecolor='#303c50', mirror=True)
+_cycle_fig.update_yaxes(showline=True, linecolor='#303c50', mirror=True)
+_cycle_fig.show()
+display(HTML(
+    f'<div style="width:{DASHBOARD_WIDTH}px;max-width:100%;box-sizing:border-box;'
+    'background:#0b1220;border:1px solid #303c50;border-radius:0;'
+    'padding:10px 18px;margin:0 auto;font:12px Arial;color:#9caac0">'
+    '<b>Elapsed cycles (hardware detail)</b>: one-second windows show '
+    'the mean of CUPTI per-sample rollups in billions. '
+    'GR is <code>.max</code>; SM is <code>.sum</code> across SM instances. '
+    'Do not divide these curves to estimate GPU utilization or FLOP/s. '
+    'Hover for unabridged cycle counts.'
+    '</div>'
+))
 
 print('Workload schedule:')
 for p in phases:
@@ -699,14 +1093,16 @@ for (family,unit,row,col,color) in [
          name=f'{family} {unit}',marker_color=color,
          text=[f'{v:.2f}' for v in part.value],textposition='outside',
          hovertemplate='%{x}: %{y:.3f} '+unit+'<extra></extra>'),row=row,col=col)
-fig_precision.update_layout(title='GPU Pulse | Actually Executed Precision Kernels',
+fig_precision.update_layout(title=f'GPU Pulse | {GPU_DISPLAY_NAME} · Precision Kernels',
     width=DASHBOARD_WIDTH,autosize=False,height=780,showlegend=False,
     template='plotly_dark',paper_bgcolor='#0b1220',plot_bgcolor='#111827',
-    margin=dict(l=80,r=50,t=95,b=90))
+    margin=dict(l=80,r=50,t=95,b=65))
 fig_precision.update_yaxes(title_text='GFLOP/s',row=1,col=1)
 fig_precision.update_yaxes(title_text='GOP/s',row=1,col=2)
 fig_precision.update_yaxes(title_text='TFLOP/s',row=2,col=1)
 fig_precision.update_yaxes(title_text='GOP/s',row=2,col=2)
+fig_precision.update_xaxes(showline=True,linecolor='#303c50',mirror=True)
+fig_precision.update_yaxes(showline=True,linecolor='#303c50',mirror=True)
 fig_precision.show()
 
 # =============================================================
@@ -731,13 +1127,13 @@ _cache_msg = (
     'of sampled metric values, not sector-weighted aggregate hit rates.'
 )
 display(HTML(
-    f'<div style="background:#0b1220;color:#edf2fc;border-radius:14px;'
+    f'<div style="background:#0b1220;color:#edf2fc;border-radius:0;'
     f'padding:20px;width:{DASHBOARD_WIDTH}px;max-width:100%;box-sizing:border-box;'
     f'margin:12px auto;font-family:Arial,sans-serif">'
-    f'<div style="font-size:19px;font-weight:700;margin-bottom:14px">GPU PULSE | L1 / L2 CACHE</div>'
+    f'<div style="font-size:19px;font-weight:700;margin-bottom:14px">GPU PULSE | {GPU_DISPLAY_HTML} · L1 / L2 CACHE</div>'
     f'<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px">'
-    f'{card("L1 / TEX Cache Hit",fmt(_cache_l1,4),"% · CUPTI .pct (unweighted mean)","#fbbf24")}'
-    f'{card("L2 Cache Hit",fmt(_cache_l2,2),"% · CUPTI .pct (unweighted mean)","#a78bfa")}'
+    f'{card("L1 / TEX Cache Hit",_cache_l1,"% · CUPTI .pct (unweighted mean)","#fbbf24")}'
+    f'{card("L2 Cache Hit",_cache_l2,"% · CUPTI .pct (unweighted mean)","#a78bfa")}'
     f'</div><p style="color:#91a0b7;font-size:12px;margin:15px 0 0">{_cache_msg}</p>'
     f'</div>'
 ))
@@ -760,14 +1156,17 @@ if not fig_cache.data:
         text='L1/L2 cache metrics unavailable in this capture',showarrow=False,
         font=dict(size=15,color='#b6c4da'))
 fig_cache.update_layout(
-    title='GPU Pulse | L1 / L2 Cache Hit · 1-second CUPTI Timeline',
+    title=f'GPU Pulse | {GPU_DISPLAY_NAME} · L1 / L2 Cache Hit · 1-second CUPTI Timeline',
     template='plotly_dark',paper_bgcolor='#0b1220',plot_bgcolor='#111827',
     width=DASHBOARD_WIDTH,autosize=False,height=475,
     xaxis_title='Capture time (seconds)',yaxis_title='Cache hit (%)',
     hovermode='x unified',
-    legend=dict(orientation='h',x=.5,xanchor='center',y=-.20,yanchor='top',font=dict(size=11)),
-    margin=dict(l=80,r=50,t=90,b=115)
+    legend=dict(orientation='h',x=0.99,xanchor='right',y=0.99,yanchor='top',
+                bgcolor='rgba(11,18,32,0.86)',font=dict(size=11)),
+    margin=dict(l=80,r=50,t=90,b=65)
 )
+fig_cache.update_xaxes(showline=True,linecolor='#303c50',mirror=True)
+fig_cache.update_yaxes(showline=True,linecolor='#303c50',mirror=True)
 fig_cache.show()
 gpu_pulse_cache_agg = agg[['time_s'] + [c for c in ('l1','l2') if c in agg.columns]].copy()
 
@@ -776,3 +1175,33 @@ print('The precision benchmark runs AFTER the 60-second capture; it does not cha
 print('Matrix TF32 is only a math-policy test unless its actual MMA instruction is independently verified.')
 print('Tensor formats with scaling are NOT emulated with FP16.')
 gpu_pulse_precision_results=precision_results
+
+# Curated-spec comparisons exported for follow-up analysis.
+gpu_pulse_peak_spec = GPU_PEAK
+gpu_pulse_peak_comparisons = GPU_PEAK_COMPARISONS
+
+# Adaptive capability summary; no invented values for unavailable paths.
+_cap_rows=[]
+for _key in ('read','write','l1','l2','tensor_active','sm','gr','tensor_inst','fma_inst','fadd','fmul','ffma'):
+    _spec=manifest.get(_key)
+    _diag_entry=result.get('diagnostics',{}).get(_key)
+    if _spec and _spec['metric'] in lookup and _key in df and df[_key].notna().any():
+        _state='MEASURED (baseline pass)'
+        _source=_spec['metric']
+    elif _diag_entry and _diag_entry['status']=='MEASURED':
+        _state='MEASURED (separate diagnostic)'
+        _source=_diag_entry['metric']
+    else:
+        _state=(_diag_entry or {}).get('status','UNAVAILABLE')
+        _source=(_diag_entry or {}).get('detail','No compatible/decoded baseline metric')
+    _cap_rows.append(dict(metric=_key,status=_state,source=_source))
+gpu_pulse_capabilities=pd.DataFrame(_cap_rows)
+print('\n=== AUTO-DETECTED CAPABILITIES ===')
+print(gpu_pulse_capabilities.to_string(index=False,max_colwidth=85))
+print('Main CUPTI metric set:',result['set'],'trigger:',result['trigger_mode'])
+print('Selected baseline metrics:',result.get('metric_manifest',{}))
+print('Decoded CUPTI metrics:',result.get('metrics',[]))
+print('Valid CUPTI samples:',len(result.get('samples',[])))
+print('Standalone diagnostic status:',result.get('diagnostics',{}))
+print('ZERO_ONLY = decoder returned valid samples, but zero nonzero samples; do not label as measured throughput.')
+print('Baseline and separate-pass diagnostics are never merged on one timeline.')
