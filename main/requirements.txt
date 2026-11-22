@@ -1,0 +1,2 @@
+# CUPTI 13.2+ is needed for Python single-pass metric-set discovery.
+cupti-python>=13.2,<14
