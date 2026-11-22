@@ -148,7 +148,9 @@ def emit_sample(sample, names: list[str], selected, chip: str, device: int) -> d
         "gpu_start_ns": ts_start,
         "gpu_end_ns": ts_end,
         "sample_duration_ms": max(0, ts_end - ts_start) / 1e6,
-        "measurements": to_dashboard_values(raw, selected),
+        "measurements": to_dashboard_values(
+            raw, selected, (ts_end - ts_start) / 1e9 if ts_end > ts_start else None
+        ),
         "raw_metrics": raw,
         "metric_coverage": coverage(selected)["tensor_precisions"],
     }
