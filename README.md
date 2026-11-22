@@ -12,7 +12,7 @@ GPU Pulse is an experimental GPU-performance observability project that combines
 
 ### Measured GPU throughput & hardware timeline
 
-<img width="760" alt="image" src="https://github.com/user-attachments/assets/29a7f965-3769-4224-8f65-ebfbf66b1748" />
+<img width="760" alt="image" src="https://github.com/user-attachments/assets/af5fd17d-da79-4c87-b551-9b5fc724fa25" />
 <img width="760" alt="image" src="https://github.com/user-attachments/assets/70d97f14-d11f-4af9-8ec2-b688491290c7" />
 
 *Captured on an NVIDIA L4 (AD104) with CUPTI Python 13.5.0. The screenshots show a real test run, not synthetic dashboard data.*
