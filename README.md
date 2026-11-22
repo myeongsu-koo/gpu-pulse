@@ -6,14 +6,30 @@ GPU Pulse is an experimental GPU-performance observability project that combines
 
 ## Dashboard preview
 
-### GPU Pulse metric cards
+> GPU Pulse metric cards
+<div align="left">
+  <table>
+    <tr>
+      <td align="center" width="380">
+        <img src="https://github.com/user-attachments/assets/c38b4784-729a-4c8a-bd77-967ef1e2e33a" alt="image" width="100%" /><br>
+        <sub>NVIDIA L4 GPU Pulse Dashboard (AD104)</sub>
+      </td>
+    </tr>
+  </table>
+</div>
 
-<img width="760" alt="image" src="https://github.com/user-attachments/assets/c38b4784-729a-4c8a-bd77-967ef1e2e33a" />
-
-### Measured GPU throughput & hardware timeline
-
-<img width="760" alt="image" src="https://github.com/user-attachments/assets/af5fd17d-da79-4c87-b551-9b5fc724fa25" />
-<img width="760" alt="image" src="https://github.com/user-attachments/assets/70d97f14-d11f-4af9-8ec2-b688491290c7" />
+> Measured GPU throughput & hardware timeline
+<div align="left">
+  <table>
+    <tr>
+      <td align="center" width="380">
+        <img width="760" alt="image" src="https://github.com/user-attachments/assets/af5fd17d-da79-4c87-b551-9b5fc724fa25" />
+        <img width="760" alt="image" src="https://github.com/user-attachments/assets/70d97f14-d11f-4af9-8ec2-b688491290c7" />
+        <sub>NVIDIA L4 GPU Pulse Dashboard (AD104)</sub>
+      </td>
+    </tr>
+  </table>
+</div>
 
 *Captured on an NVIDIA L4 (AD104) with CUPTI Python 13.5.0. The screenshots show a real test run, not synthetic dashboard data.*
 
