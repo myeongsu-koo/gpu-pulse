@@ -11,7 +11,7 @@ GPU Pulse is an experimental GPU-performance observability project that combines
   <table>
     <tr>
       <td align="center" width="380">
-        <img src="https://github.com/user-attachments/assets/c38b4784-729a-4c8a-bd77-967ef1e2e33a" alt="image" width="100%" /><br>
+        <img src="https://github.com/user-attachments/assets/61a273a9-c189-4257-a284-b776b586846e" alt="image" width="100%" />
         <sub>NVIDIA L4 GPU Pulse Dashboard (AD104)</sub>
       </td>
     </tr>
@@ -23,8 +23,8 @@ GPU Pulse is an experimental GPU-performance observability project that combines
   <table>
     <tr>
       <td align="center" width="380">
-        <img width="760" alt="image" src="https://github.com/user-attachments/assets/af5fd17d-da79-4c87-b551-9b5fc724fa25" />
-        <img width="760" alt="image" src="https://github.com/user-attachments/assets/70d97f14-d11f-4af9-8ec2-b688491290c7" />
+        <img width="760" alt="image" src="https://github.com/user-attachments/assets/8ab2ff38-c9ab-45df-ad3d-d163040e254e" />
+        <img width="760" alt="image" src="https://github.com/user-attachments/assets/4380c353-6abe-471b-9a92-fb83a2554fe3" />
         <sub>NVIDIA L4 GPU Pulse Dashboard (AD104)</sub>
       </td>
     </tr>
