@@ -35,10 +35,14 @@ SPECS = [
     MetricSpec("fadd", "smsp__sass_thread_inst_executed_op_fadd_pred_on", ".sum.per_second", "fp32", 1, 3),
     MetricSpec("fmul", "smsp__sass_thread_inst_executed_op_fmul_pred_on", ".sum.per_second", "fp32", 1, 3),
     MetricSpec("ffma", "smsp__sass_thread_inst_executed_op_ffma_pred_on", ".sum.per_second", "fp32", 2, 4),
+    # L4/AD104 validated alternative: 32-byte sectors per sampling interval.
+    MetricSpec("dram_read_sectors", "dramc__sectors_op_read", ".sum", "dram_sectors", weight=7),
+    MetricSpec("dram_write_sectors", "dramc__sectors_op_write", ".sum", "dram_sectors", weight=7),
     MetricSpec("dram_read", "dram__bytes_read", ".sum.per_second", "dram", weight=8),
     MetricSpec("dram_write", "dram__bytes_write", ".sum.per_second", "dram", weight=8),
     MetricSpec("l1_hit", "l1tex__t_sector_hit_rate", ".pct", "cache", weight=2),
     MetricSpec("l2_hit", "lts__t_sector_hit_rate", ".pct", "cache", weight=3),
+    MetricSpec("l2_hit_realtime", "lts__average_t_sector_hit_rate_realtime", ".pct", "cache", weight=3),
 ]
 
 KEY_TO_SPEC = {s.key: s for s in SPECS}
@@ -60,7 +64,8 @@ def score_set(specs: list[MetricSpec]) -> float:
     # Do not award "FP32 TFLOP/s" if ADD/MUL/FMA are incomplete.
     if {"fadd", "fmul", "ffma"}.issubset(keys):
         score += 10
-    if "dram_read" in keys and "dram_write" in keys:
+    if ({"dram_read", "dram_read_sectors"} & keys and
+            {"dram_write", "dram_write_sectors"} & keys):
         score += 6
     return score
 
@@ -89,7 +94,7 @@ def _safe_num(x: object) -> float | None:
         return None
 
 
-def to_dashboard_values(values: dict[str, object], selected: list[MetricSpec]) -> dict[str, float | None]:
+def to_dashboard_values(values: dict[str, object], selected: list[MetricSpec], sample_seconds: float | None = None) -> dict[str, float | None]:
     """Convert already time-normalized PerfWorks .per_second to TF/s and GB/s.
 
     Never use a partial FP32 opcode set: missing ADD/MUL/FMA produces null.
