@@ -1,0 +1,10 @@
+# Optional dependencies for active GPU precision benchmarks and the Colab demo.
+# Keep requirements.txt lightweight for passive CUPTI-only observation.
+-r requirements.txt
+torch
+numpy
+pandas
+plotly
+ipython
+# CUPTI native library must match your CUDA runtime. On CUDA 13 Colab:
+# pip install nvidia-cuda-cupti==13.5.25
