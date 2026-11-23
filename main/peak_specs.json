@@ -35,7 +35,9 @@
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/tesla-t4/"
         }
-      }
+      },
+      "memory_peak_quality": "LOWER_BOUND",
+      "memory_bandwidth_source": "https://www.nvidia.com/en-us/data-center/tesla-t4/"
     },
     {
       "sku": "l4-24gb-pcie",
@@ -319,7 +321,7 @@
         "B200"
       ],
       "memory_gb": 180,
-      "memory_bandwidth_gbps": null,
+      "memory_bandwidth_gbps": 7700,
       "source": "https://www.nvidia.com/en-us/data-center/hgx/",
       "compute_peaks": {
         "fp32.cuda.dense": {
@@ -376,15 +378,16 @@
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         }
-      }
+      },
+      "memory_bandwidth_source": "https://lenovopress.lenovo.com/lp2226-thinksystem-nvidia-b200-180gb-1000w-gpu"
     },
     {
       "sku": "b300-hgx-sxm",
       "aliases": [
         "B300"
       ],
-      "memory_gb": null,
-      "memory_bandwidth_gbps": null,
+      "memory_gb": 270,
+      "memory_bandwidth_gbps": 7700,
       "source": "https://www.nvidia.com/en-us/data-center/hgx/",
       "compute_peaks": {
         "fp32.cuda.dense": {
@@ -441,7 +444,8 @@
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         }
-      }
+      },
+      "memory_bandwidth_source": "https://resources.nvidia.com/en-us-blackwell-architecture/blackwell-ultra-datasheet"
     }
   ]
 }
