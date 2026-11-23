@@ -19,7 +19,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-from metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, select_for_set, to_dashboard_values
+from metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, select_for_set, to_dashboard_values, precision_dashboard_values
 
 LOG = logging.getLogger("cupti-observer")
 
@@ -147,11 +147,13 @@ def emit_sample(sample, names: list[str], selected, chip: str, device: int) -> d
         "device": device,
         "gpu_start_ns": ts_start,
         "gpu_end_ns": ts_end,
+        "host_received_ns": time.time_ns(),
         "sample_duration_ms": max(0, ts_end - ts_start) / 1e6,
         "measurements": to_dashboard_values(
             raw, selected, (ts_end - ts_start) / 1e9 if ts_end > ts_start else None
         ),
         "raw_metrics": raw,
+        "precision_metrics": precision_dashboard_values(raw, selected),
         "metric_coverage": coverage(selected)["tensor_precisions"],
     }
 
