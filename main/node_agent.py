@@ -23,7 +23,7 @@ from urllib.parse import unquote, urlsplit
 
 from gpu_discovery import discover_gpus, discover_mig_mode
 from node_aggregator import node_summary, compute_summary
-from peak_registry import match_peak, attain, measured_compute
+from peak_registry import match_peak, attain, measured_compute, load_registry
 
 LOG = logging.getLogger("gpu-pulse-node")
 ROOT = Path(__file__).resolve().parent
@@ -88,9 +88,15 @@ class NodeSupervisor:
             errfile = self.output_dir / (uuid.replace("/", "_") + ".stderr.log")
             cmd = [sys.executable, str(ROOT / "observer.py"), "--device",
                    str(gpu["cuda_index"]), "--output", str(path), *self.worker_options]
-            with errfile.open("w", encoding="utf-8") as error_output:
-                proc = subprocess.Popen(cmd, cwd=str(ROOT), stderr=error_output,
-                                        stdout=subprocess.DEVNULL, start_new_session=True)
+            try:
+                with errfile.open("w", encoding="utf-8") as error_output:
+                    proc = subprocess.Popen(cmd, cwd=str(ROOT), stderr=error_output,
+                                            stdout=subprocess.DEVNULL, start_new_session=True)
+            except OSError as exc:
+                LOG.error("GPU worker failed to start (%s): %s", uuid, exc)
+                self.workers[uuid] = {"status": "FAILED", "pid": None,
+                                      "error_log": str(errfile), "reason": str(exc)}
+                continue
             self.workers[uuid] = {"status": "STARTING", "pid": proc.pid, "process": proc,
                                   "error_log": str(errfile)}
             t = threading.Thread(target=self._reader, args=(uuid, path, proc),
@@ -260,9 +266,9 @@ def create_server(supervisor, host="127.0.0.1", port=8766):
                                        "peak_spec": match.get("spec")})
             if path.startswith("/api/v1/peak-specs/"):
                 sku = unquote(path.split("/")[-1])
-                for match in supervisor.peak_matches.values():
-                    if match.get("sku") == sku:
-                        return self._json(match["spec"])
+                for spec in load_registry():
+                    if spec.get("sku") == sku:
+                        return self._json(spec)
             return self._json({"error": "not found"}, 404)
 
         def log_message(self, fmt, *args):
