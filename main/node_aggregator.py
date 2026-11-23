@@ -41,6 +41,8 @@ def node_summary(inventory, latest, peak_matches=None, now_ns=None, max_age_s=5.
         peak_match = peak_matches.get(uid, {})
         spec = peak_match.get("spec")
         peak_bw = (spec or {}).get("memory_bandwidth_gbps")
+        if (spec or {}).get("memory_peak_quality") == "LOWER_BOUND":
+            peak_bw = None
         mem_pct = attain(read + write, peak_bw) if valid_mem else None
         row = {"uuid": uid, "cuda_index": gpu.get("cuda_index"), "model": gpu["model"],
                "pci_bus_id": gpu.get("pci_bus_id"), "status": "FRESH" if fresh else "STALE",
@@ -62,6 +64,8 @@ def node_summary(inventory, latest, peak_matches=None, now_ns=None, max_age_s=5.
     for uid in complete_mem:
         spec = peak_matches.get(uid, {}).get("spec") or {}
         peak = spec.get("memory_bandwidth_gbps")
+        if spec.get("memory_peak_quality") == "LOWER_BOUND":
+            peak = None
         if not _number(peak) or peak == 0:
             peak_known = False
             break
