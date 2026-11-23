@@ -132,5 +132,41 @@ class PrecisionTests(unittest.TestCase):
         self.assertNotIn("int8.tensor.dense", result)
 
 
+class NodeAgentTests(unittest.TestCase):
+    def test_worker_launch_failure_is_isolated(self):
+        from node_agent import NodeSupervisor
+        inventory = [gpu("GPU-a"), gpu("GPU-b", cuda=1)]
+        with tempfile.TemporaryDirectory() as folder:
+            agent = NodeSupervisor(inventory, output_dir=folder)
+            with patch("node_agent.subprocess.Popen", side_effect=OSError("permission denied")):
+                agent.start()
+            self.assertEqual(agent.worker_status()["GPU-a"]["status"], "FAILED")
+            self.assertEqual(agent.worker_status()["GPU-b"]["status"], "FAILED")
+            agent.shutdown()
+
+    def test_summary_detail_and_registry_http(self):
+        import threading
+        import urllib.request
+        from node_agent import NodeSupervisor, create_server
+        with tempfile.TemporaryDirectory() as folder:
+            agent = NodeSupervisor([gpu("GPU-a")], output_dir=folder)
+            httpd = create_server(agent, host="127.0.0.1", port=0)
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
+            try:
+                origin = f"http://127.0.0.1:{httpd.server_port}"
+                def read(path):
+                    with urllib.request.urlopen(origin + path, timeout=3) as response:
+                        return json.load(response)
+                self.assertEqual(read("/api/v1/node/summary")["gpu_count"], 1)
+                self.assertEqual(read("/api/v1/gpus")["gpus"][0]["uuid"], "GPU-a")
+                self.assertEqual(read("/api/v1/gpus/GPU-a/metrics")["sku"], "l4-24gb-pcie")
+                self.assertEqual(read("/api/v1/peak-specs/b300-hgx-sxm")["sku"], "b300-hgx-sxm")
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+                thread.join(timeout=3)
+
+
 if __name__ == "__main__":
     unittest.main()
