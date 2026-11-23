@@ -209,7 +209,9 @@ def run(args) -> int:
                 from webui import start_server
                 server = start_server(state, host=args.bind, port=args.port)
                 LOG.info("Dashboard: http://%s:%d/", args.bind, args.port)
-            if args.output:
+            if args.output == "-":
+                file = sys.stdout
+            elif args.output:
                 file = open(args.output, "a", encoding="utf-8", buffering=1)
             LOG.info("CUPTI PM Sampling started; no workload is launched by this observer")
             collector.start()
@@ -236,6 +238,8 @@ def run(args) -> int:
                     state.push(record)
                     if file:
                         file.write(json.dumps(record, allow_nan=False) + "\n")
+                        if file is sys.stdout:
+                            file.flush()
                 # No output-rate limit on device sampling, only UI ring buffer is bounded.
             LOG.info("Stopping PM sampling")
             collector.stop()
@@ -251,6 +255,8 @@ def run(args) -> int:
                     state.push(record)
                     if file:
                         file.write(json.dumps(record, allow_nan=False) + "\n")
+                        if file is sys.stdout:
+                            file.flush()
             except (MemoryError, RuntimeError) as ex:
                 LOG.warning("Final decode incomplete: %s", ex)
             state.set_status(state="stopped")
@@ -264,7 +270,7 @@ def run(args) -> int:
                 collector.disable()
             except Exception:
                 LOG.exception("Collector disable failed")
-            if file:
+            if file and file is not sys.stdout:
                 file.close()
             if server:
                 server.shutdown()
@@ -284,7 +290,7 @@ def main(argv=None) -> int:
     p.add_argument("--max-samples", type=int, default=4096, help="Maximum samples processed per decode() call")
     p.add_argument("--hardware-buffer-mb", type=int, default=128, help="PM hardware buffer allocation in MiB")
     p.add_argument("--duration", type=float, default=0, help="Run seconds, 0 means until Ctrl+C")
-    p.add_argument("--output", default="samples.jsonl", help="NDJSON output path; '' disables")
+    p.add_argument("--output", default="samples.jsonl", help="NDJSON output path; - streams to stdout; empty disables")
     p.add_argument("--web", action="store_true", help="Serve live dashboard (127.0.0.1 only by default)")
     p.add_argument("--bind", default="127.0.0.1", help="Bind IP for web dashboard")
     p.add_argument("--port", type=int, default=8765)

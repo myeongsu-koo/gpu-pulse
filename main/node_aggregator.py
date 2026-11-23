@@ -13,7 +13,7 @@ def node_summary(inventory, latest, peak_matches=None, now_ns=None, max_age_s=5.
     """Aggregate fresh host-arrival snapshots, not unrelated GPU clock domains.
 
     The observer's host_received_ns is a decode-time proxy, not exact sample time.
-    A node-wide point is COMPLETE only if each physical GPU has fresh values
+    A node-wide point is COMPLETE only if each CUDA-visible device has fresh values
     and the receipt-time spread is within max_skew_s.
     """
     peak_matches = peak_matches or {}
@@ -22,8 +22,6 @@ def node_summary(inventory, latest, peak_matches=None, now_ns=None, max_age_s=5.
     total_read = total_write = 0.0
     complete_mem = []
     timestamps = []
-    total_power = 0.0
-    power_count = 0
     for gpu in inventory:
         uid = gpu["uuid"]
         sample = latest.get(uid)

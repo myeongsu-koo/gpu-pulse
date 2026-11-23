@@ -2,7 +2,7 @@
 """GPU Pulse multi-GPU supervisor. Passive per-GPU CUPTI workers + local read-only API.
 
 Usage: python node_agent.py --port 8766
-Requires: nvidia-smi, NVIDIA driver and CUPTI for counter collection.
+Requires: NVIDIA CUDA driver and CUPTI for counter collection.
 The API remains available if individual collectors fail.
 """
 from __future__ import annotations
@@ -10,7 +10,6 @@ import argparse
 import collections
 import json
 import logging
-import os
 from pathlib import Path
 import signal
 import subprocess
@@ -21,7 +20,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
-from gpu_discovery import discover_gpus, discover_mig_mode, read_gpu_health
+from gpu_discovery import discover_gpus
 from node_aggregator import node_summary, compute_summary
 from peak_registry import match_peak, load_registry
 from webui import PAGE, detail_payload
@@ -33,47 +32,34 @@ ROOT = Path(__file__).resolve().parent
 class NodeSupervisor:
     def __init__(self, inventory, *, output_dir=None, worker_options=None, max_history=256):
         self.inventory = list(inventory)
-        self.by_uuid = {g["uuid"]: g for g in inventory}
+        self.by_uuid = {g["uuid"]: g for g in self.inventory}
         if len(self.by_uuid) != len(self.inventory):
             raise ValueError("Duplicate GPU UUID")
-        self.peak_matches = {g["uuid"]: match_peak(g) for g in inventory}
+        self.peak_matches = {g["uuid"]: match_peak(g) for g in self.inventory}
         self.output_dir = Path(output_dir or tempfile.mkdtemp(prefix="gpu-pulse-node-")).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.worker_options = list(worker_options or [])
         self.max_history = max_history
         self.lock = threading.RLock()
         self.latest = {}
-        self.history = {g["uuid"]: collections.deque(maxlen=max_history) for g in inventory}
+        self.history = {g["uuid"]: collections.deque(maxlen=max_history) for g in self.inventory}
         self.workers = {}
-        self._health_at = 0.0
-        self._health_data = {}
-        self.stop_event = threading.Event()
         self.threads = []
 
-    def _reader(self, uuid, path, proc):
-        while not self.stop_event.is_set() and not path.exists() and proc.poll() is None:
-            self.stop_event.wait(0.1)
-        if not path.exists():
-            return
-        with path.open(encoding="utf-8") as fp:
-            while not self.stop_event.is_set():
-                line = fp.readline()
-                if not line:
-                    if proc.poll() is not None:
-                        break
-                    self.stop_event.wait(0.15)
-                    continue
+    def _reader(self, uuid, pipe):
+        with pipe:
+            for line in pipe:
                 try:
                     data = json.loads(line)
+                    if not isinstance(data, dict):
+                        raise ValueError("Expected a sample object")
                     if data.get("device") != self.by_uuid[uuid]["cuda_index"]:
                         continue
-                    # Host decode time is a coarse cross-GPU alignment proxy,
-                    # NOT a synchronized GPU hardware timestamp.
                     data.setdefault("host_received_ns", time.time_ns())
                     with self.lock:
                         self.latest[uuid] = data
                         self.history[uuid].append(data)
-                except (ValueError, TypeError, KeyError):
+                except ValueError:
                     LOG.warning("Malformed worker sample for %s", uuid)
 
     def start(self):
@@ -82,19 +68,17 @@ class NodeSupervisor:
             if gpu.get("cuda_index") is None:
                 self.workers[uuid] = {"status": "UNMAPPED", "pid": None}
                 continue
-            if gpu.get("mig_mode") == "Enabled":
+            if gpu.get("profiling_available") is False or gpu.get("mig_mode") == "Enabled":
                 self.workers[uuid] = {"status": "MIG_UNSUPPORTED", "pid": None}
                 continue
-            path = self.output_dir / (uuid.replace("/", "_") + ".jsonl")
-            # New file each run to avoid stale output at restart.
-            path.write_text("", encoding="utf-8")
             errfile = self.output_dir / (uuid.replace("/", "_") + ".stderr.log")
             cmd = [sys.executable, str(ROOT / "observer.py"), "--device",
-                   str(gpu["cuda_index"]), "--output", str(path), *self.worker_options]
+                   str(gpu["cuda_index"]), *self.worker_options, "--output", "-"]
             try:
                 with errfile.open("w", encoding="utf-8") as error_output:
                     proc = subprocess.Popen(cmd, cwd=str(ROOT), stderr=error_output,
-                                            stdout=subprocess.DEVNULL, start_new_session=True)
+                                            stdout=subprocess.PIPE, text=True, encoding="utf-8",
+                                            start_new_session=True)
             except OSError as exc:
                 LOG.error("GPU worker failed to start (%s): %s", uuid, exc)
                 self.workers[uuid] = {"status": "FAILED", "pid": None,
@@ -102,7 +86,7 @@ class NodeSupervisor:
                 continue
             self.workers[uuid] = {"status": "STARTING", "pid": proc.pid, "process": proc,
                                   "error_log": str(errfile)}
-            t = threading.Thread(target=self._reader, args=(uuid, path, proc),
+            t = threading.Thread(target=self._reader, args=(uuid, proc.stdout),
                                  daemon=True, name="read-" + uuid[:16])
             t.start()
             self.threads.append(t)
@@ -111,11 +95,15 @@ class NodeSupervisor:
         result = {}
         for uuid, rec in self.workers.items():
             proc = rec.get("process")
-            status = ("RUNNING" if proc and proc.poll() is None else
-                      "FAILED" if proc and proc.poll() is not None else rec["status"])
+            returncode = proc.poll() if proc is not None else None
+            status = rec["status"]
+            if proc is not None:
+                if returncode is None:
+                    status = "RUNNING"
+                else:
+                    status = "STOPPED" if returncode == 0 else "FAILED"
             result[uuid] = {"status": status, "pid": rec.get("pid"),
-                            "returncode": proc.returncode if proc else None,
-                            "error_log": rec.get("error_log")}
+                            "returncode": returncode, "error_log": rec.get("error_log")}
         return result
 
     def snapshot(self):
@@ -124,26 +112,12 @@ class NodeSupervisor:
             history = {k: list(v) for k, v in self.history.items()}
         return latest, history
 
-    def health_snapshot(self):
-        with self.lock:
-            if time.monotonic() - self._health_at < 2:
-                return dict(self._health_data)
-        # Do not hold the sample ring-buffer lock during a subprocess call.
-        health = read_gpu_health()
-        with self.lock:
-            self._health_data = health
-            self._health_at = time.monotonic()
-            return dict(self._health_data)
-
     def summary(self):
         latest, _ = self.snapshot()
         payload = node_summary(self.inventory, latest, self.peak_matches)
         statuses = self.worker_status()
         payload["collectors"] = statuses
         payload["total_memory_mib"] = sum(g.get("memory_mib", 0) for g in self.inventory)
-        health = self.health_snapshot()
-        for gpu in payload["gpus"]:
-            gpu["health"] = health.get(gpu["uuid"], {})
         payload["ready_collectors"] = sum(v["status"] == "RUNNING" for v in statuses.values())
         payload["precision"] = {
             key: compute_summary(self.inventory, latest, self.peak_matches, key)
@@ -160,13 +134,13 @@ class NodeSupervisor:
         latest, history = self.snapshot()
         return detail_payload(
             gpu, self.peak_matches[uuid], latest.get(uuid, {}),
-            self.worker_status().get(uuid), self.health_snapshot().get(uuid, {}),
+            self.worker_status().get(uuid),
             len(history[uuid]),
         )
 
     def history_for(self, uuid):
         _, history = self.snapshot()
-        return {"uuid": uuid, "alignment": "host_decode_receipt_proxy",
+        return {"uuid": uuid, "gpu": self.by_uuid[uuid], "alignment": "host_decode_receipt_proxy",
                 "samples": history[uuid]}
 
     def node_history(self):
@@ -199,7 +173,6 @@ class NodeSupervisor:
         return {"alignment": "host_decode_receipt_proxy", "points": points}
 
     def shutdown(self):
-        self.stop_event.set()
         for rec in self.workers.values():
             proc = rec.get("process")
             if proc and proc.poll() is None:
@@ -245,7 +218,7 @@ def create_server(supervisor, host="127.0.0.1", port=8766):
                 uuid = unquote(path[len("/gpu/"):])
                 return self._html(PAGE.name) if uuid in supervisor.by_uuid else self._json({"error": "not found"}, 404)
             if path == "/api/v1/node":
-                return self._json({"gpu_count": len(supervisor.inventory), "source": "nvidia-smi/CUDA"})
+                return self._json({"gpu_count": len(supervisor.inventory), "source": "CUDA Driver API"})
             if path == "/api/v1/node/summary":
                 return self._json(supervisor.summary())
             if path == "/api/v1/node/history":
@@ -291,20 +264,24 @@ def main(argv=None):
     if args.history <= 0 or args.interval_ms <= 0 or args.poll_ms <= 0:
         parser.error("history and intervals must be positive")
     logging.basicConfig(level=logging.INFO)
-    inventory = discover_gpus()
-    mig = discover_mig_mode()
-    for gpu in inventory:
-        gpu["mig_mode"] = mig.get(gpu["nvml_index"], "Unknown")
+    try:
+        inventory = discover_gpus()
+    except (OSError, AttributeError, RuntimeError) as exc:
+        parser.exit(1, f"CUDA inventory unavailable: {exc}\n")
     supervisor = NodeSupervisor(
         inventory, output_dir=args.output_dir, max_history=args.history,
         worker_options=["--interval-ms", str(args.interval_ms),
                         "--poll-ms", str(args.poll_ms)])
     server = None
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
     try:
         supervisor.start()
         server = create_server(supervisor, args.host, args.port)
         LOG.info("GPU Pulse node: http://%s:%s/ | discovered %d GPUs", args.host, args.port, len(inventory))
-        server.serve_forever(poll_interval=0.3)
+        server.timeout = 0.3
+        while not stop.is_set():
+            server.handle_request()
     except KeyboardInterrupt:
         pass
     finally:

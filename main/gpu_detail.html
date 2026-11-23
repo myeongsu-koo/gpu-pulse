@@ -52,18 +52,16 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
   <div class="cards" id="memory-cards"></div>
   <div class="charts" id="memory-charts"></div>
 </section>
-<section>
-  <h2>Hardware Health</h2>
-  <div class="cards" id="health-cards"></div>
-</section>
 <details>
   <summary>Collector and metric provenance</summary>
   <pre id="diagnostics"></pre>
 </details>
+<script type="application/json" id="report-data"></script>
 <script>
 const $ = id => document.getElementById(id);
 const path = location.pathname;
-const usedByNode = path.startsWith('/gpu/');
+const reportData = $('report-data').textContent;
+const usedByNode = !reportData && path.startsWith('/gpu/');
 const metricsURL = usedByNode ? '/api/v1/gpus/' + path.slice(5) : '';
 $('back').hidden = !usedByNode;
 const compute = [
@@ -77,12 +75,6 @@ const dram = [
 const cache = [
   ['l1_hit_pct', 'L1/TEX Hit', '%', '#7cc7fc'],
   ['l2_hit_pct', 'L2 Hit', '%', '#f5d18d']
-];
-const health = [
-  ['temperature_c', 'Temperature', '°C'], ['power_w', 'Power Draw', 'W'],
-  ['power_limit_w', 'Power Limit', 'W'], ['sm_clock_mhz', 'SM Clock', 'MHz'],
-  ['memory_clock_mhz', 'Memory Clock', 'MHz'], ['memory_used_mib', 'Used VRAM', 'MiB'],
-  ['memory_mib', 'Total VRAM', 'MiB']
 ];
 const format = (value, unit) => Number.isFinite(value)
   ? value.toLocaleString('en-US', {maximumFractionDigits: 2}) + (unit ? ' ' + unit : '')
@@ -102,8 +94,7 @@ function createCards(group, fields) {
   });
 }
 const computeCards = createCards('compute-cards', compute);
-const memoryCards = createCards('memory-cards', [...dram, ...cache, ['peak', 'DRAM Bandwidth Peak', 'GB/s']]);
-const healthCards = createCards('health-cards', health);
+const memoryCards = createCards('memory-cards', [...dram, ...cache, ['peak', 'DRAM Bandwidth Peak', 'GB/s'], ['memory_mib', 'Total VRAM', 'MiB']]);
 function updateCards(cards, values) {
   for (const [key, element, unit] of cards) element.textContent = format(values[key], unit);
 }
@@ -142,7 +133,7 @@ function draw({canvas, lines, fixedMax}, samples) {
   ctx.scale(dpr, dpr);
   const left = 45, right = width - 12, top = 12, bottom = height - 24;
   const values = samples.flatMap(s => lines.map(([key]) => s.measurements?.[key]).filter(Number.isFinite));
-  const max = fixedMax || Math.max(1, ...values) * 1.14;
+  const max = fixedMax || values.reduce((max, value) => Math.max(max, value), 1) * 1.14;
   ctx.font = '11px system-ui';
   ctx.fillStyle = '#9fb0c5';
   ctx.textAlign = 'right';
@@ -205,28 +196,33 @@ async function getJSON(url) {
 }
 
 let latestSamples = [];
+function render(data, samples) {
+  const {gpu, collector} = data;
+  $('title').textContent = gpu.model || (gpu.cuda_index == null ? 'GPU Detail' : `GPU ${gpu.cuda_index} Detail`);
+  $('meta').textContent = [
+    gpu.uuid, gpu.pci_bus_id && 'PCI ' + gpu.pci_bus_id, collector?.chip,
+    data.sku || data.peak_status, collector?.status || 'UNKNOWN'
+  ].filter(Boolean).join(' · ');
+  $('error').textContent = collector?.last_error || '';
+  updateCards(computeCards, data.measurements);
+  updateCards(memoryCards, {
+    ...data.measurements, peak: data.memory_bandwidth_peak_gbps, memory_mib: gpu.memory_mib
+  });
+  updatePrecision(data.compute);
+  latestSamples = samples;
+  for (const chart of charts) draw(chart, latestSamples);
+  $('diagnostics').textContent = JSON.stringify({
+    collector, peak_source: data.peak_source, raw_metrics: data.raw_metrics,
+    last_host_received_ns: data.last_host_received_ns
+  }, null, 2);
+}
+
 async function refresh() {
   try {
     const [data, history] = usedByNode
       ? await Promise.all([getJSON(metricsURL + '/metrics'), getJSON(metricsURL + '/history')])
       : [await getJSON('/api/detail')];
-    const {gpu, collector} = data;
-    $('title').textContent = gpu.model || `GPU ${gpu.cuda_index ?? ''} Detail`;
-    $('meta').textContent = [
-      gpu.uuid, gpu.pci_bus_id && 'PCI ' + gpu.pci_bus_id, collector?.chip,
-      data.sku || data.peak_status, collector?.status || 'UNKNOWN'
-    ].filter(Boolean).join(' · ');
-    $('error').textContent = collector?.last_error || '';
-    updateCards(computeCards, data.measurements);
-    updateCards(memoryCards, {...data.measurements, peak: data.memory_bandwidth_peak_gbps});
-    updateCards(healthCards, {...data.health, memory_mib: gpu.memory_mib});
-    updatePrecision(data.compute);
-    latestSamples = (history || data).samples;
-    for (const chart of charts) draw(chart, latestSamples);
-    $('diagnostics').textContent = JSON.stringify({
-      collector, peak_source: data.peak_source, raw_metrics: data.raw_metrics,
-      last_host_received_ns: data.last_host_received_ns
-    }, null, 2);
+    render(data, (history || data).samples);
   } catch (error) {
     $('error').textContent = 'Dashboard disconnected: ' + error.message;
   } finally {
@@ -234,7 +230,12 @@ async function refresh() {
   }
 }
 window.addEventListener('resize', () => charts.forEach(chart => draw(chart, latestSamples)));
-refresh();
+if (reportData) {
+  const report = JSON.parse(reportData);
+  render(report, report.samples);
+} else {
+  refresh();
+}
 </script>
 </body>
 </html>
