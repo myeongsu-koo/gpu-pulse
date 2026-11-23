@@ -21,7 +21,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
-from gpu_discovery import discover_gpus, discover_mig_mode
+from gpu_discovery import discover_gpus, discover_mig_mode, read_gpu_health
 from node_aggregator import node_summary, compute_summary
 from peak_registry import match_peak, attain, measured_compute, load_registry
 
@@ -44,6 +44,8 @@ class NodeSupervisor:
         self.latest = {}
         self.history = {g["uuid"]: collections.deque(maxlen=max_history) for g in inventory}
         self.workers = {}
+        self._health_at = 0.0
+        self._health_data = {}
         self.stop_event = threading.Event()
         self.threads = []
 
@@ -121,11 +123,22 @@ class NodeSupervisor:
             history = {k: list(v) for k, v in self.history.items()}
         return latest, history
 
+    def health_snapshot(self):
+        with self.lock:
+            if time.monotonic() - self._health_at >= 2:
+                self._health_data = read_gpu_health()
+                self._health_at = time.monotonic()
+            return dict(self._health_data)
+
     def summary(self):
         latest, _ = self.snapshot()
         payload = node_summary(self.inventory, latest, self.peak_matches)
         statuses = self.worker_status()
         payload["collectors"] = statuses
+        payload["total_memory_mib"] = sum(g.get("memory_mib", 0) for g in self.inventory)
+        health = self.health_snapshot()
+        for gpu in payload["gpus"]:
+            gpu["health"] = health.get(gpu["uuid"], {})
         payload["ready_collectors"] = sum(v["status"] == "RUNNING" for v in statuses.values())
         payload["precision"] = {
             key: compute_summary(self.inventory, latest, self.peak_matches, key)
@@ -153,6 +166,7 @@ class NodeSupervisor:
             if rec.get("measured") is not None and rec.get("attainment_pct") is not None:
                 rec["comparison_note"] = "Dense theoretical reference; runtime sparsity not independently verified"
         return {"gpu": gpu, "collector": self.worker_status().get(uuid),
+                "health": self.health_snapshot().get(uuid, {}),
                 "peak_status": match["status"], "sku": match.get("sku"),
                 "peak_source": spec.get("source"),
                 "memory_bandwidth_peak_gbps": spec.get("memory_bandwidth_gbps"),
