@@ -26,7 +26,7 @@ def match_peak(gpu, registry=None):
     candidates = []
     for spec in registry:
         aliases = spec["aliases"]
-        if not any(_normalized(alias) in name for alias in aliases):
+        if not any((" " + _normalized(alias) + " ") in (" " + name + " ") for alias in aliases):
             continue
         if spec.get("requires") and not all(word in name for word in spec["requires"]):
             continue
