@@ -4,16 +4,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 import json
-import subprocess
 import threading
 
-from gpu_discovery import discover_gpus, read_gpu_health
+from gpu_discovery import discover_gpus
 from peak_registry import match_peak, measured_compute
 
 PAGE = Path(__file__).with_name("gpu_detail.html")
 
 
-def detail_payload(gpu, match, sample, collector, health, history_count):
+def detail_payload(gpu, match, sample, collector, history_count):
     spec = match.get("spec") or {}
     compute = measured_compute(sample.get("precision_metrics", {}), spec)
     for key, reference in spec.get("compute_peaks", {}).items():
@@ -23,7 +22,7 @@ def detail_payload(gpu, match, sample, collector, health, history_count):
         if record["attainment_pct"] is not None:
             record["comparison_note"] = "Dense theoretical reference; runtime sparsity not independently verified"
     return {
-        "gpu": gpu, "collector": collector, "health": health,
+        "gpu": gpu, "collector": collector, "health": {},
         "peak_status": match["status"], "sku": match.get("sku"),
         "peak_source": spec.get("source"),
         "memory_bandwidth_peak_gbps": spec.get("memory_bandwidth_gbps"),
@@ -38,7 +37,7 @@ def start_server(state, host: str = "127.0.0.1", port: int = 8765):
     device = state.snapshot()["status"].get("device")
     try:
         gpu = next((g for g in discover_gpus() if device is not None and g["cuda_index"] == device), None)
-    except (OSError, subprocess.SubprocessError, ValueError):
+    except (OSError, AttributeError, RuntimeError):
         gpu = None
     gpu = gpu or {"cuda_index": device}
     match = match_peak(gpu)
@@ -52,10 +51,8 @@ def start_server(state, host: str = "127.0.0.1", port: int = 8765):
                     samples = state_snapshot["samples"]
                     collector = dict(state_snapshot["status"])
                     collector["status"] = collector.pop("state", "unknown").upper()
-                    uuid = gpu.get("uuid")
-                    health = read_gpu_health().get(uuid, {}) if uuid else {}
                     state_snapshot = detail_payload(
-                        gpu, match, samples[-1] if samples else {}, collector, health, len(samples)
+                        gpu, match, samples[-1] if samples else {}, collector, len(samples)
                     )
                     state_snapshot["samples"] = samples
                 payload = json.dumps(state_snapshot, allow_nan=False).encode()

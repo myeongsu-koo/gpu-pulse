@@ -20,14 +20,18 @@ python node_agent.py --output-dir ./samples
 python observer.py --device 0 --web --output gpu0.jsonl
 ```
 
-Both collectors run passively. The node agent starts a worker per eligible GPU and writes each worker’s sample stream and stderr log to the output directory. See the [operator guide](main/README.md) for requirements, routes, and remote access.
+Both collectors run passively. The node agent retains the most recent 256 samples per GPU in memory by default and writes worker stderr logs to the output directory. Inventory uses the CUDA Driver API. Live metrics come from CUPTI. See the [operator guide](main/README.md) for requirements, routes, and remote access.
 
 | View | What it shows |
 | --- | --- |
-| Node Summary | Physical GPU inventory, collector status, node DRAM and compute aggregates, and measurement coverage |
-| GPU Detail | Live compute, DRAM and cache charts, measured versus dense peak by precision, temperature, power, clocks, VRAM, and metric provenance |
+| Node Summary | CUDA-visible GPU inventory, collector status, node DRAM and compute aggregates, and measurement coverage |
+| GPU Detail | Live compute, DRAM and cache charts, measured versus dense peak by precision, total VRAM and metric provenance |
 
 The registry covers T4, L4, L40S, A100 40/80 GB in PCIe and SXM, H100 SXM, H200 SXM, B200, and B300. A registry match supplies theoretical peaks. Live counter availability depends on the GPU, CUPTI version, and selected single-pass set. The dashboard displays missing values as **N/A** and flags partial node coverage. Node time alignment uses host receipt time.
+
+## Offline HTML reports
+
+Run `python exporter_html.py gpu0.jsonl -o gpu0-report.html` from `main/` and open the resulting HTML locally. Node history JSON is also supported. See the [offline export instructions](main/README.md#generate-an-offline-html-report).
 
 ## Colab demo
 
@@ -41,4 +45,4 @@ The preview is from an NVIDIA L4 capture with CUPTI Python 13.5.0.
 
 - [NVIDIA CUPTI PM Sampling](https://docs.nvidia.com/cupti/main/main.html#cupti-pm-sampling-api)
 - [CUPTI Python PM Sampling](https://docs.nvidia.com/cupti-python/api-reference/topics/pm_sampling.html)
-- [NVIDIA System Management Interface](https://docs.nvidia.com/deploy/nvidia-smi/index.html)
+- [NVIDIA CUDA Driver API device management](https://docs.nvidia.com/cuda/cuda-driver-api/cuda_driver_api/group__CUDA__DEVICE.html)

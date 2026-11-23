@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from gpu_discovery import _bus_id, discover_gpus
+from gpu_discovery import discover_gpus
 from node_aggregator import node_summary, compute_summary
 from peak_registry import match_peak, attain, load_registry
 from metrics import SPECS, precision_dashboard_values
@@ -16,31 +16,43 @@ def gpu(uid, model="NVIDIA L4", cuda=0, mib=24576):
 
 
 class DiscoveryTests(unittest.TestCase):
-    def test_pci_domain_normalization(self):
-        self.assertEqual(_bus_id("00000000:65:00.0"), _bus_id("0000:65:00.0"))
+    def test_cuda_inventory_uses_device_ordinals_and_mib(self):
+        driver = Mock()
+        driver.cuInit.return_value = 0
 
-    def test_cuda_ordinal_mapped_by_pci_not_nvml_index(self):
-        sample = ("0, GPU-a, 00000000:65:00.0, NVIDIA L4, 23034\n"
-                  "1, GPU-b, 00000000:41:00.0, NVIDIA L4, 23034\n")
-        with patch("gpu_discovery.subprocess.run") as run:
-            run.return_value.stdout = sample
-            found = discover_gpus(cuda_mapping={"0000:65:00.0": 5, "0000:41:00.0": 4})
-        self.assertEqual([g["cuda_index"] for g in found], [4, 5])
-        self.assertEqual([g["uuid"] for g in found], ["GPU-b", "GPU-a"])
+        def write_number(output, value):
+            output._obj.value = value
+            return 0
 
-    def test_no_guess_if_cuda_bus_unmapped(self):
-        with patch("gpu_discovery.subprocess.run") as run:
-            run.return_value.stdout = "0, GPU-a, 00000000:65:00.0, NVIDIA L4, 23034\n"
-            found = discover_gpus(cuda_mapping={})
-        self.assertIsNone(found[0]["cuda_index"])
-        self.assertFalse(found[0]["profiling_available"])
+        def write_string(output, max_size, device, values):
+            output.value = values[device.value]
+            return 0
 
-    def test_duplicate_gpu_uuid_rejected(self):
-        with patch("gpu_discovery.subprocess.run") as run:
-            run.return_value.stdout = ("0, GPU-a, 00000000:65:00.0, NVIDIA L4, 23034\n"
-                                      "1, GPU-a, 00000000:66:00.0, NVIDIA L4, 23034\n")
-            with self.assertRaises(ValueError):
-                discover_gpus(cuda_mapping={})
+        def write_uuid(output, device):
+            output._obj[0] = device.value + 1
+            return 0
+
+        driver.cuDeviceGetCount.side_effect = lambda output: write_number(output, 2)
+        driver.cuDeviceGet.side_effect = write_number
+        driver.cuDeviceGetName.side_effect = lambda *args: write_string(*args, [b"NVIDIA L4", b"NVIDIA A100 MIG 1g.5gb"])
+        driver.cuDeviceGetPCIBusId.side_effect = lambda *args: write_string(*args, [b"0000:65:00.0", b"0000:41:00.0"])
+        driver.cuDeviceTotalMem_v2.side_effect = lambda output, device: write_number(output, [23034, 5120][device.value] * 1024**2)
+        driver.cuDeviceGetUuid_v2.side_effect = write_uuid
+        with patch("gpu_discovery.ctypes.CDLL", return_value=driver) as load:
+            found = discover_gpus()
+        load.assert_called_once_with("libcuda.so.1")
+        self.assertEqual([row["cuda_index"] for row in found], [0, 1])
+        self.assertEqual([row["pci_bus_id"] for row in found], ["0000:65:00.0", "0000:41:00.0"])
+        self.assertEqual([row["memory_mib"] for row in found], [23034, 5120])
+        self.assertEqual(found[0]["uuid"], "GPU-01000000-0000-0000-0000-000000000000")
+        self.assertFalse(found[1]["profiling_available"])
+        self.assertTrue(found[1]["uuid"].startswith("MIG-"))
+
+    def test_cuda_no_device(self):
+        driver = Mock()
+        driver.cuInit.return_value = 100
+        self.assertEqual(discover_gpus(driver), [])
+        driver.cuDeviceGetCount.assert_not_called()
 
 
 class PeakTests(unittest.TestCase):
@@ -175,6 +187,40 @@ class NodeAgentTests(unittest.TestCase):
             self.assertEqual(agent.worker_status()["GPU-b"]["status"], "FAILED")
             agent.shutdown()
 
+    def test_worker_pipe_retains_recent_samples_and_reports_exit_codes(self):
+        from node_agent import NodeSupervisor
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "observer.py").write_text(
+                'import json, sys\n'
+                'device = int(sys.argv[2])\n'
+                'assert sys.argv[-2:] == ["--output", "-"]\n'
+                'print("null")\n'
+                'for i in range(500):\n'
+                '    print(json.dumps({"device": device, "measurements": {"index": i}}))\n'
+                'sys.exit(device)\n',
+                encoding="utf-8",
+            )
+            agent = NodeSupervisor([gpu("GPU-a"), gpu("GPU-b", cuda=1)],
+                                   output_dir=root, max_history=3)
+            with patch("node_agent.ROOT", root):
+                agent.start()
+            try:
+                for worker in agent.workers.values():
+                    worker["process"].wait(timeout=5)
+                for thread in agent.threads:
+                    thread.join(timeout=5)
+                    self.assertFalse(thread.is_alive())
+                statuses = agent.worker_status()
+                self.assertEqual(statuses["GPU-a"]["status"], "STOPPED")
+                self.assertEqual(statuses["GPU-b"]["status"], "FAILED")
+                self.assertEqual(statuses["GPU-b"]["returncode"], 1)
+                self.assertEqual([s["measurements"]["index"] for s in agent.history_for("GPU-a")["samples"]],
+                                 [497, 498, 499])
+                self.assertEqual(list(root.glob("*.json*")), [])
+            finally:
+                agent.shutdown()
+
     def test_summary_detail_and_registry_http(self):
         import threading
         import urllib.request
@@ -212,7 +258,8 @@ class StandaloneDashboardTests(unittest.TestCase):
                   "precision_metrics": {"fp16.tensor.dense": {"value": 60.5, "unit": "TFLOP/s"}}}
         snapshot = {"status": {"device": 1, "state": "running"}, "samples": [sample]}
         with (patch("webui.discover_gpus", return_value=[gpu("GPU-b", cuda=1)]) as inventory,
-              patch("webui.read_gpu_health", return_value={"GPU-b": {"temperature_c": 29}})):
+              patch("subprocess.run", side_effect=AssertionError("External command called")),
+              patch("ctypes.CDLL", side_effect=AssertionError("Driver loaded after inventory"))):
             state = Mock()
             state.snapshot.return_value = snapshot
             server = start_server(state, port=0)
@@ -227,7 +274,8 @@ class StandaloneDashboardTests(unittest.TestCase):
                 detail = json.loads(read("/api/detail"))
                 self.assertEqual(detail["sku"], "l4-24gb-pcie")
                 self.assertEqual(detail["compute"]["fp16.tensor.dense"]["attainment_pct"], 50)
-                self.assertEqual(detail["health"]["temperature_c"], 29)
+                self.assertEqual(detail["health"], {})
+                self.assertEqual(json.loads(read("/api/detail"))["samples"], [sample])
                 self.assertEqual(detail["samples"], [sample])
                 inventory.assert_called_once()
             finally:
