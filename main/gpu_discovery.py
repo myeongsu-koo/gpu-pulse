@@ -84,3 +84,33 @@ def discover_mig_mode():
                 for row in csv.reader(io.StringIO(result.stdout)) if len(row) == 2}
     except (OSError, subprocess.SubprocessError, ValueError):
         return {}
+
+
+def read_gpu_health():
+    """NVML-backed nvidia-smi GPU health snapshots, keyed by physical GPU UUID."""
+    cmd = ["nvidia-smi", "--query-gpu=uuid,temperature.gpu,power.draw,power.limit,clocks.sm,clocks.mem,memory.used",
+           "--format=csv,noheader,nounits"]
+    try:
+        output = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+
+    def number(text):
+        try:
+            value = float(text.strip())
+            import math
+            return value if math.isfinite(value) else None
+        except (ValueError, TypeError):
+            return None
+
+    found = {}
+    for row in csv.reader(io.StringIO(output), skipinitialspace=True):
+        if len(row) != 7:
+            continue
+        uid = row[0].strip()
+        if uid.startswith("GPU-"):
+            found[uid] = dict(zip(
+                ("temperature_c", "power_w", "power_limit_w", "sm_clock_mhz",
+                 "memory_clock_mhz", "memory_used_mib"),
+                (number(x) for x in row[1:])))
+    return found
