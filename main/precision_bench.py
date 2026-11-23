@@ -11,6 +11,11 @@ import argparse
 import json
 import math
 
+if __package__:
+    from .gpu_discovery import discover_gpus
+else:
+    from gpu_discovery import discover_gpus
+
 VECTOR = ("INT4", "INT8", "INT16", "INT32", "FP16", "BF16", "FP32", "FP64")
 MATRIX = ("INT1", "INT2", "INT4", "INT8", "MXFP4", "NVFP4", "MXFP6",
           "FP8", "MXFP8", "FP16", "BF16", "FP32", "TF32", "FP64")
@@ -132,9 +137,9 @@ def _matrix(torch, precision, device, size, repeats):
 
 def sweep(size=512, vector_elements=1 << 20, repeats=8, device_index=0):
     """Active workload sweep; DO NOT run alongside passive observer by default."""
+    if not any(gpu["cuda_index"] == device_index for gpu in discover_gpus()):
+        raise RuntimeError("Requested CUDA device is unavailable")
     import torch
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA GPU is required")
     device = torch.device("cuda", device_index)
     torch.cuda.set_device(device)
     torch.empty(1, device=device)

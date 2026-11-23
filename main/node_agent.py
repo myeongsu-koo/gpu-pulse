@@ -7,7 +7,6 @@ The API remains available if individual collectors fail.
 """
 from __future__ import annotations
 import argparse
-import collections
 import json
 import logging
 from pathlib import Path
@@ -20,17 +19,25 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
-from gpu_discovery import discover_gpus
-from node_aggregator import node_summary, compute_summary
-from peak_registry import match_peak, load_registry
-from webui import PAGE, detail_payload
+if __package__:
+    from .gpu_discovery import discover_gpus
+    from .node_aggregator import node_summary, compute_summary
+    from .peak_registry import match_peak, load_registry
+    from .webui import PAGE, detail_payload, require_loopback
+    from .sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory, average_buckets, chart_samples
+else:
+    from gpu_discovery import discover_gpus
+    from node_aggregator import node_summary, compute_summary
+    from peak_registry import match_peak, load_registry
+    from webui import PAGE, detail_payload, require_loopback
+    from sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory, average_buckets, chart_samples
 
 LOG = logging.getLogger("gpu-pulse-node")
 ROOT = Path(__file__).resolve().parent
 
 
 class NodeSupervisor:
-    def __init__(self, inventory, *, output_dir=None, worker_options=None, max_history=256):
+    def __init__(self, inventory, *, output_dir=None, worker_options=None, max_history=HISTORY_CAP, history_seconds=HISTORY_SECONDS):
         self.inventory = list(inventory)
         self.by_uuid = {g["uuid"]: g for g in self.inventory}
         if len(self.by_uuid) != len(self.inventory):
@@ -39,10 +46,9 @@ class NodeSupervisor:
         self.output_dir = Path(output_dir or tempfile.mkdtemp(prefix="gpu-pulse-node-")).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.worker_options = list(worker_options or [])
-        self.max_history = max_history
         self.lock = threading.RLock()
         self.latest = {}
-        self.history = {g["uuid"]: collections.deque(maxlen=max_history) for g in self.inventory}
+        self.history = {g["uuid"]: SampleHistory(history_seconds, max_history) for g in self.inventory}
         self.workers = {}
         self.threads = []
 
@@ -56,40 +62,64 @@ class NodeSupervisor:
                     if data.get("device") != self.by_uuid[uuid]["cuda_index"]:
                         continue
                     data.setdefault("host_received_ns", time.time_ns())
+                    if type(data["host_received_ns"]) is not int:
+                        raise ValueError("Expected integer host timestamp")
                     with self.lock:
                         self.latest[uuid] = data
-                        self.history[uuid].append(data)
+                        self.history[uuid].samples.append(data)
+                        self.history[uuid].prune(time.time_ns())
                 except ValueError:
                     LOG.warning("Malformed worker sample for %s", uuid)
 
     def start(self):
         for gpu in self.inventory:
-            uuid = gpu["uuid"]
-            if gpu.get("cuda_index") is None:
-                self.workers[uuid] = {"status": "UNMAPPED", "pid": None}
+            if gpu.get("profiling_available") is False:
+                self.workers[gpu["uuid"]] = {"status": "MIG_UNSUPPORTED"}
+            else:
+                self._launch(gpu, delay=2)
+
+    def _launch(self, gpu, delay):
+        uuid = gpu["uuid"]
+        errfile = self.output_dir / (uuid.replace("/", "_") + ".stderr.log")
+        cmd = [sys.executable, str(ROOT / "observer.py"), "--device",
+               str(gpu["cuda_index"]), *self.worker_options, "--output", "-"]
+        record = {"status": "STARTING", "delay": delay, "started_at": time.monotonic()}
+        try:
+            with errfile.open("w", encoding="utf-8") as error_output:
+                proc = subprocess.Popen(cmd, cwd=str(ROOT), stderr=error_output,
+                                        stdout=subprocess.PIPE, text=True, encoding="utf-8",
+                                        start_new_session=True)
+        except OSError as exc:
+            LOG.error("GPU worker failed to start (%s): %s", uuid, exc)
+            record["status"] = "FAILED"
+        else:
+            thread = threading.Thread(target=self._reader, args=(uuid, proc.stdout),
+                                      daemon=True, name="read-" + uuid[:16])
+            record.update(process=proc, pid=proc.pid, thread=thread)
+            self.threads.append(thread)
+            thread.start()
+        self.workers[uuid] = record
+
+    def restart_failed(self):
+        """Called by the agent loop. Back off independently for each failing GPU."""
+        now = time.monotonic()
+        for uuid, record in self.workers.items():
+            proc = record.get("process")
+            if proc is None:
+                if record["status"] != "FAILED":
+                    continue
+            elif proc.poll() in (0, None) or record["thread"].is_alive():
                 continue
-            if gpu.get("profiling_available") is False or gpu.get("mig_mode") == "Enabled":
-                self.workers[uuid] = {"status": "MIG_UNSUPPORTED", "pid": None}
-                continue
-            errfile = self.output_dir / (uuid.replace("/", "_") + ".stderr.log")
-            cmd = [sys.executable, str(ROOT / "observer.py"), "--device",
-                   str(gpu["cuda_index"]), *self.worker_options, "--output", "-"]
-            try:
-                with errfile.open("w", encoding="utf-8") as error_output:
-                    proc = subprocess.Popen(cmd, cwd=str(ROOT), stderr=error_output,
-                                            stdout=subprocess.PIPE, text=True, encoding="utf-8",
-                                            start_new_session=True)
-            except OSError as exc:
-                LOG.error("GPU worker failed to start (%s): %s", uuid, exc)
-                self.workers[uuid] = {"status": "FAILED", "pid": None,
-                                      "error_log": str(errfile), "reason": str(exc)}
-                continue
-            self.workers[uuid] = {"status": "STARTING", "pid": proc.pid, "process": proc,
-                                  "error_log": str(errfile)}
-            t = threading.Thread(target=self._reader, args=(uuid, proc.stdout),
-                                 daemon=True, name="read-" + uuid[:16])
-            t.start()
-            self.threads.append(t)
+            if "retry_at" not in record:
+                if proc is not None and now - record["started_at"] >= 60:
+                    record["delay"] = 2
+                record["retry_at"] = now + record["delay"]
+            if now >= record["retry_at"]:
+                LOG.info("Restarting collector for %s", uuid)
+                self.threads[:] = [thread for thread in self.threads if thread.is_alive()]
+                with self.lock:
+                    self.latest.pop(uuid, None)
+                self._launch(self.by_uuid[uuid], delay=min(60, record["delay"] * 2))
 
     def worker_status(self):
         result = {}
@@ -102,18 +132,14 @@ class NodeSupervisor:
                     status = "RUNNING"
                 else:
                     status = "STOPPED" if returncode == 0 else "FAILED"
-            result[uuid] = {"status": status, "pid": rec.get("pid"),
-                            "returncode": returncode, "error_log": rec.get("error_log")}
+            result[uuid] = {"status": status, "pid": rec.get("pid"), "returncode": returncode}
+            if "retry_at" in rec:
+                result[uuid]["retry_in_s"] = max(0, rec["retry_at"] - time.monotonic())
         return result
 
-    def snapshot(self):
+    def summary(self):
         with self.lock:
             latest = dict(self.latest)
-            history = {k: list(v) for k, v in self.history.items()}
-        return latest, history
-
-    def summary(self):
-        latest, _ = self.snapshot()
         payload = node_summary(self.inventory, latest, self.peak_matches)
         statuses = self.worker_status()
         payload["collectors"] = statuses
@@ -130,45 +156,42 @@ class NodeSupervisor:
         return payload
 
     def detail(self, uuid):
-        gpu = self.by_uuid[uuid]
-        latest, history = self.snapshot()
-        return detail_payload(
-            gpu, self.peak_matches[uuid], latest.get(uuid, {}),
-            self.worker_status().get(uuid),
-            len(history[uuid]),
-        )
+        with self.lock:
+            history = self.history[uuid]
+            history.prune(time.time_ns())
+            latest = self.latest.get(uuid, {})
+            count = len(history.samples)
+        return detail_payload(self.by_uuid[uuid], self.peak_matches[uuid], latest,
+                              self.worker_status().get(uuid), count)
 
-    def history_for(self, uuid):
-        _, history = self.snapshot()
+    def history_for(self, uuid, chart=False):
+        with self.lock:
+            history = self.history[uuid]
+            history.prune(time.time_ns())
+            samples = list(history.samples)
         return {"uuid": uuid, "gpu": self.by_uuid[uuid], "alignment": "host_decode_receipt_proxy",
-                "samples": history[uuid]}
+                "samples": chart_samples(samples) if chart else samples}
 
     def node_history(self):
-        """Arrival-time bins; label PARTIAL when any GPU is missing from a bin."""
-        _, histories = self.snapshot()
+        keys = ("dram_read_gbps", "dram_write_gbps")
+        with self.lock:
+            now = time.time_ns()
+            for history in self.history.values():
+                history.prune(now)
+            histories = [list(history.samples) for history in self.history.values()]
         buckets = {}
-        for uid, records in histories.items():
-            for record in records:
-                stamp = record.get("host_received_ns")
-                if not isinstance(stamp, int):
-                    continue
-                second = stamp // 1_000_000_000
-                b = buckets.setdefault(second, {})
-                b[uid] = record
+        for samples in histories:
+            for stamp, averages in average_buckets(samples, keys, require_all=True).items():
+                readings = buckets.setdefault(stamp, [])
+                if averages:
+                    readings.append(averages)
         points = []
-        for second, b in sorted(buckets.items())[-self.max_history:]:
-            measured = []
-            for rec in b.values():
-                m = rec.get("measurements", {})
-                r, w = m.get("dram_read_gbps"), m.get("dram_write_gbps")
-                if isinstance(r, (float, int)) and isinstance(w, (float, int)):
-                    measured.append((r, w))
+        for stamp, readings in sorted(buckets.items()):
             points.append({
-                "timestamp_ns": second * 1_000_000_000,
-                "dram_read_gbps": sum(x[0] for x in measured) if measured else None,
-                "dram_write_gbps": sum(x[1] for x in measured) if measured else None,
-                "sampled_gpus": len(measured), "total_gpus": len(self.inventory),
-                "status": "COMPLETE" if len(measured) == len(self.inventory) else "PARTIAL",
+                "timestamp_ns": stamp,
+                **{key: sum(row[key] for row in readings) if readings else None for key in keys},
+                "sampled_gpus": len(readings), "total_gpus": len(self.inventory),
+                "status": "COMPLETE" if len(readings) == len(self.inventory) else "PARTIAL",
             })
         return {"alignment": "host_decode_receipt_proxy", "points": points}
 
@@ -190,6 +213,8 @@ class NodeSupervisor:
 
 
 def create_server(supervisor, host="127.0.0.1", port=8766):
+    require_loopback(host)
+
     class Handler(BaseHTTPRequestHandler):
         def _json(self, data, status=200):
             blob = json.dumps(data, allow_nan=False).encode("utf-8")
@@ -211,7 +236,8 @@ def create_server(supervisor, host="127.0.0.1", port=8766):
             self.wfile.write(raw)
 
         def do_GET(self):
-            path = urlsplit(self.path).path
+            url = urlsplit(self.path)
+            path = url.path
             if path in ("/", "/summary"):
                 return self._html("node_dashboard.html")
             if path.startswith("/gpu/"):
@@ -235,7 +261,7 @@ def create_server(supervisor, host="127.0.0.1", port=8766):
                 if suffix in ("", "metrics"):
                     return self._json(supervisor.detail(uuid))
                 if suffix == "history":
-                    return self._json(supervisor.history_for(uuid))
+                    return self._json(supervisor.history_for(uuid, chart=url.query == "view=chart"))
                 if suffix == "capabilities":
                     match = supervisor.peak_matches[uuid]
                     return self._json({"uuid": uuid, "peak_status": match["status"],
@@ -257,19 +283,24 @@ def main(argv=None):
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--output-dir", default=None)
-    parser.add_argument("--history", type=int, default=256)
+    parser.add_argument("--history", type=int, default=HISTORY_CAP, help="Hard sample cap per GPU")
+    parser.add_argument("--history-seconds", type=int, default=HISTORY_SECONDS)
     parser.add_argument("--interval-ms", type=int, default=100)
     parser.add_argument("--poll-ms", type=int, default=500)
     args = parser.parse_args(argv)
-    if args.history <= 0 or args.interval_ms <= 0 or args.poll_ms <= 0:
+    if min(args.history, args.history_seconds) <= 0 or args.interval_ms <= 0 or args.poll_ms <= 0:
         parser.error("history and intervals must be positive")
+    try:
+        require_loopback(args.host)
+    except ValueError as exc:
+        parser.error(str(exc))
     logging.basicConfig(level=logging.INFO)
     try:
         inventory = discover_gpus()
     except (OSError, AttributeError, RuntimeError) as exc:
         parser.exit(1, f"CUDA inventory unavailable: {exc}\n")
     supervisor = NodeSupervisor(
-        inventory, output_dir=args.output_dir, max_history=args.history,
+        inventory, output_dir=args.output_dir, max_history=args.history, history_seconds=args.history_seconds,
         worker_options=["--interval-ms", str(args.interval_ms),
                         "--poll-ms", str(args.poll_ms)])
     server = None
@@ -282,6 +313,8 @@ def main(argv=None):
         server.timeout = 0.3
         while not stop.is_set():
             server.handle_request()
+            if not stop.is_set():
+                supervisor.restart_failed()
     except KeyboardInterrupt:
         pass
     finally:

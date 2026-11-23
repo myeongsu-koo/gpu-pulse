@@ -20,7 +20,7 @@ python node_agent.py --output-dir ./samples
 python observer.py --device 0 --web --output gpu0.jsonl
 ```
 
-Both collectors run passively. The node agent retains the most recent 256 samples per GPU in memory by default and writes worker stderr logs to the output directory. Inventory uses the CUDA Driver API. Live metrics come from CUPTI. See the [operator guide](main/README.md) for requirements, routes, and remote access.
+Collectors launch no workload kernels and retain a CUDA primary context while sampling. The live dashboards retain up to 120 seconds and 16,384 samples per GPU in memory by default. The standalone collector writes sample files only when you pass `--output`. The node agent writes worker stderr logs. Inventory uses the CUDA Driver API. Live metrics come from CUPTI. See the [operator guide](main/README.md) for requirements, routes, and remote access.
 
 | View | What it shows |
 | --- | --- |
@@ -29,13 +29,17 @@ Both collectors run passively. The node agent retains the most recent 256 sample
 
 The registry covers T4, L4, L40S, A100 40/80 GB in PCIe and SXM, H100 SXM, H200 SXM, B200, and B300. A registry match supplies theoretical peaks. Live counter availability depends on the GPU, CUPTI version, and selected single-pass set. The dashboard displays missing values as **N/A** and flags partial node coverage. Node time alignment uses host receipt time.
 
+## Install command-line tools
+
+From the repository root, use `python -m pip install '.[collector]'` on the collection host. Run `gpu-pulse-observer`, `gpu-pulse-node`, or `gpu-pulse-export` from any directory. For an export-only installation, use `python -m pip install .`.
+
 ## Offline HTML reports
 
 Run `python exporter_html.py gpu0.jsonl -o gpu0-report.html` from `main/` and open the resulting HTML locally. Node history JSON is also supported. See the [offline export instructions](main/README.md#generate-an-offline-html-report).
 
 ## Colab demo
 
-The [Colab notebook](main/notebooks/GPU_Pulse_All_Precisions.ipynb) runs an active variable workload and visualizes timed GEMM throughput alongside hardware counters. Timed GEMM throughput measures benchmark work divided by execution time. CUPTI metrics describe sampled hardware activity.
+The [Colab notebook](main/notebooks/GPU_Pulse_All_Precisions.ipynb) loads the shared demo script from the checkout, or from GitHub in Colab, and runs an active variable workload and visualizes timed GEMM throughput alongside hardware counters. Timed GEMM throughput measures benchmark work divided by execution time. CUPTI metrics describe sampled hardware activity.
 
 <img src="https://github.com/user-attachments/assets/61a273a9-c189-4257-a284-b776b586846e" alt="GPU Pulse Colab dashboard captured on NVIDIA L4" width="650">
 

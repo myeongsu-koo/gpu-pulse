@@ -6,8 +6,12 @@ import argparse
 import json
 from pathlib import Path
 
-from peak_registry import match_peak
-from webui import PAGE, detail_payload
+if __package__:
+    from .peak_registry import match_peak
+    from .webui import PAGE, detail_payload
+else:
+    from peak_registry import match_peak
+    from webui import PAGE, detail_payload
 
 DATA_TAG = '<script type="application/json" id="report-data">'
 

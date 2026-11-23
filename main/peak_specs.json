@@ -318,36 +318,58 @@
       "compute_peaks": {
         "fp32.cuda.dense": {
           "value": 67,
+          "value_origin": "PUBLISHED",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h100/"
         },
         "fp64.cuda.dense": {
           "value": 34,
+          "value_origin": "PUBLISHED",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h100/"
         },
         "tf32.tensor.dense": {
           "value": 494.5,
+          "value_origin": "DERIVED",
+          "published_value": 989.0,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2,
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h100/"
         },
         "fp16.tensor.dense": {
           "value": 989.5,
+          "value_origin": "DERIVED",
+          "published_value": 1979.0,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2,
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h100/"
         },
         "bf16.tensor.dense": {
           "value": 989.5,
+          "value_origin": "DERIVED",
+          "published_value": 1979.0,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2,
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h100/"
         },
         "fp8.tensor.dense": {
           "value": 1979,
+          "value_origin": "DERIVED",
+          "published_value": 3958,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2,
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h100/"
@@ -372,36 +394,58 @@
       "compute_peaks": {
         "fp32.cuda.dense": {
           "value": 67,
+          "value_origin": "PUBLISHED",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h200/"
         },
         "fp64.cuda.dense": {
           "value": 34,
+          "value_origin": "PUBLISHED",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h200/"
         },
         "tf32.tensor.dense": {
           "value": 494.5,
+          "value_origin": "DERIVED",
+          "published_value": 989.0,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2,
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h200/"
         },
         "fp16.tensor.dense": {
           "value": 989.5,
+          "value_origin": "DERIVED",
+          "published_value": 1979.0,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2,
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h200/"
         },
         "bf16.tensor.dense": {
           "value": 989.5,
+          "value_origin": "DERIVED",
+          "published_value": 1979.0,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2,
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h200/"
         },
         "fp8.tensor.dense": {
           "value": 1979,
+          "value_origin": "DERIVED",
+          "published_value": 3958,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2,
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h200/"
@@ -423,54 +467,103 @@
       "compute_peaks": {
         "fp32.cuda.dense": {
           "value": 75,
+          "value_origin": "DERIVED",
+          "published_value": 600.0,
+          "published_unit": "TFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 8,
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "fp64.cuda.dense": {
           "value": 37,
+          "value_origin": "AMBIGUOUS_SOURCE",
+          "note": "HGX lists a combined FP64/FP64 Tensor Core row; the CUDA-only figure is unverified.",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "tf32.tensor.dense": {
           "value": 1125,
+          "value_origin": "DERIVED",
+          "published_value": 18.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "fp16.tensor.dense": {
           "value": 2250,
+          "value_origin": "DERIVED",
+          "published_value": 36.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "bf16.tensor.dense": {
           "value": 2250,
+          "value_origin": "DERIVED",
+          "published_value": 36.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "fp8.tensor.dense": {
           "value": 4500,
+          "value_origin": "DERIVED",
+          "published_value": 72.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "fp6.tensor.dense": {
           "value": 4500,
+          "value_origin": "DERIVED",
+          "published_value": 72.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "fp4.tensor.dense": {
           "value": 9000,
+          "value_origin": "DERIVED",
+          "published_value": 72.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 8,
+          "published_sparsity": "dense",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "int8.tensor.dense": {
           "value": 4500,
+          "value_origin": "DERIVED",
+          "published_value": 72.0,
+          "published_unit": "POP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
@@ -489,54 +582,103 @@
       "compute_peaks": {
         "fp32.cuda.dense": {
           "value": 75,
+          "value_origin": "DERIVED",
+          "published_value": 600.0,
+          "published_unit": "TFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 8,
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "fp64.cuda.dense": {
           "value": 1.25,
+          "value_origin": "AMBIGUOUS_SOURCE",
+          "note": "HGX lists a combined FP64/FP64 Tensor Core row; the CUDA-only figure is unverified.",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "tf32.tensor.dense": {
           "value": 1125,
+          "value_origin": "DERIVED",
+          "published_value": 18.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "fp16.tensor.dense": {
           "value": 2250,
+          "value_origin": "DERIVED",
+          "published_value": 36.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "bf16.tensor.dense": {
           "value": 2250,
+          "value_origin": "DERIVED",
+          "published_value": 36.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "fp8.tensor.dense": {
           "value": 4500,
+          "value_origin": "DERIVED",
+          "published_value": 72.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "fp6.tensor.dense": {
           "value": 4500,
+          "value_origin": "DERIVED",
+          "published_value": 72.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "fp4.tensor.dense": {
           "value": 13500,
+          "value_origin": "DERIVED",
+          "published_value": 108.0,
+          "published_unit": "PFLOP/s",
+          "published_gpu_count": 8,
+          "divisor": 8,
+          "published_sparsity": "dense",
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         },
         "int8.tensor.dense": {
           "value": 187.5,
+          "value_origin": "DERIVED",
+          "published_value": 3.0,
+          "published_unit": "POP/s",
+          "published_gpu_count": 8,
+          "divisor": 16,
+          "published_sparsity": "sparse",
           "unit": "TOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"

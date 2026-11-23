@@ -16,10 +16,14 @@ import signal
 import sys
 import threading
 import time
-from collections import deque
 from pathlib import Path
 
-from metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, select_for_set, to_dashboard_values, precision_dashboard_values
+if __package__:
+    from .sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory
+    from .metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, select_for_set, to_dashboard_values, precision_dashboard_values
+else:
+    from sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory
+    from metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, select_for_set, to_dashboard_values, precision_dashboard_values
 
 LOG = logging.getLogger("cupti-observer")
 
@@ -121,9 +125,9 @@ def capability_report(chip: str) -> dict:
 
 
 class State:
-    def __init__(self, capacity: int = 256):
+    def __init__(self, capacity=HISTORY_CAP, seconds=HISTORY_SECONDS):
         self.lock = threading.Lock()
-        self.samples = deque(maxlen=capacity)
+        self.history = SampleHistory(seconds, capacity)
         self.status = {"state": "initializing", "metrics": [], "coverage": {}, "chip": None}
 
     def set_status(self, **kwargs):
@@ -132,11 +136,13 @@ class State:
 
     def push(self, record):
         with self.lock:
-            self.samples.append(record)
+            self.history.samples.append(record)
+            self.history.prune(record["host_received_ns"])
 
     def snapshot(self):
         with self.lock:
-            return {"status": dict(self.status), "samples": list(self.samples)}
+            self.history.prune(time.time_ns())
+            return {"status": dict(self.status), "samples": list(self.history.samples)}
 
 
 def emit_sample(sample, names: list[str], selected, chip: str, device: int) -> dict:
@@ -170,7 +176,7 @@ def run(args) -> int:
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
 
-    state = State()
+    state = State(seconds=args.history_seconds)
     with CudaPrimaryContext(args.device):
         chip = get_chip_name(args.device)
         if args.probe:
@@ -206,7 +212,10 @@ def run(args) -> int:
                 hw_buffer_append_mode=pm_sampling.HardwareBufferAppendMode.KEEP_LATEST,
             )
             if args.web:
-                from webui import start_server
+                if __package__:
+                    from .webui import start_server
+                else:
+                    from webui import start_server
                 server = start_server(state, host=args.bind, port=args.port)
                 LOG.info("Dashboard: http://%s:%d/", args.bind, args.port)
             if args.output == "-":
@@ -219,44 +228,39 @@ def run(args) -> int:
             state.set_status(state="running")
             time_start = time.monotonic()
             prev_end = -1
+
+            def decode_batch():
+                nonlocal prev_end
+                batch = collector.decode(max_samples=args.max_samples)
+                added = 0
+                for sample in batch:
+                    if sample.end_timestamp <= prev_end or sample.end_timestamp <= sample.start_timestamp:
+                        continue
+                    prev_end = sample.end_timestamp
+                    record = emit_sample(sample, batch.metrics, specs, chip, args.device)
+                    added += 1
+                    if args.web:
+                        state.push(record)
+                    if file:
+                        file.write(json.dumps(record, allow_nan=False) + "\n")
+                if file is sys.stdout:
+                    file.flush()
+                return added
+
             while not stop.wait(args.poll_ms / 1000):
                 if args.duration > 0 and time.monotonic() - time_start >= args.duration:
                     break
                 try:
-                    batch = collector.decode(max_samples=args.max_samples)
+                    decode_batch()
                 except MemoryError:
                     LOG.warning("CUPTI HW overflow; data lost. Increase --interval-ms / --sysclk-cycles or buffer")
                     state.set_status(last_error="hardware buffer overflow; some samples may be lost")
-                    continue
-                if batch.num_completed_samples >= args.max_samples:
-                    LOG.warning("Decode hit --max-samples; some samples may have been omitted")
-                for sample in batch:
-                    if sample.end_timestamp <= prev_end or sample.end_timestamp <= sample.start_timestamp:
-                        continue
-                    prev_end = sample.end_timestamp
-                    record = emit_sample(sample, list(batch.metrics), specs, chip, args.device)
-                    state.push(record)
-                    if file:
-                        file.write(json.dumps(record, allow_nan=False) + "\n")
-                        if file is sys.stdout:
-                            file.flush()
-                # No output-rate limit on device sampling, only UI ring buffer is bounded.
             LOG.info("Stopping PM sampling")
             collector.stop()
             started = False
-            # Final drain after the GPU stops writing new hardware samples.
             try:
-                batch = collector.decode(max_samples=args.max_samples)
-                for sample in batch:
-                    if sample.end_timestamp <= prev_end or sample.end_timestamp <= sample.start_timestamp:
-                        continue
-                    prev_end = sample.end_timestamp
-                    record = emit_sample(sample, list(batch.metrics), specs, chip, args.device)
-                    state.push(record)
-                    if file:
-                        file.write(json.dumps(record, allow_nan=False) + "\n")
-                        if file is sys.stdout:
-                            file.flush()
+                while decode_batch():
+                    pass
             except (MemoryError, RuntimeError) as ex:
                 LOG.warning("Final decode incomplete: %s", ex)
             state.set_status(state="stopped")
@@ -290,12 +294,13 @@ def main(argv=None) -> int:
     p.add_argument("--max-samples", type=int, default=4096, help="Maximum samples processed per decode() call")
     p.add_argument("--hardware-buffer-mb", type=int, default=128, help="PM hardware buffer allocation in MiB")
     p.add_argument("--duration", type=float, default=0, help="Run seconds, 0 means until Ctrl+C")
-    p.add_argument("--output", default="samples.jsonl", help="NDJSON output path; - streams to stdout; empty disables")
+    p.add_argument("--output", default="", help="Opt-in append-only NDJSON path; - streams to stdout")
+    p.add_argument("--history-seconds", type=int, default=HISTORY_SECONDS)
     p.add_argument("--web", action="store_true", help="Serve live dashboard (127.0.0.1 only by default)")
     p.add_argument("--bind", default="127.0.0.1", help="Bind IP for web dashboard")
     p.add_argument("--port", type=int, default=8765)
     args = p.parse_args(argv)
-    if min(args.interval_ms, args.sysclk_cycles, args.poll_ms, args.max_samples, args.hardware_buffer_mb) <= 0:
+    if min(args.interval_ms, args.sysclk_cycles, args.poll_ms, args.max_samples, args.hardware_buffer_mb, args.history_seconds) <= 0:
         p.error("sampling interval, poll interval, max samples, hardware buffer must all be positive")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stderr)
     try:
