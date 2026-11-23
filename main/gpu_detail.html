@@ -1,7 +1,240 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GPU Pulse · Detail</title><style>:root{color-scheme:dark}*{box-sizing:border-box}body{max-width:1100px;margin:0 auto;padding:26px;background:#0b1220;color:#e6edf8;font:14px system-ui}h1{font-size:23px}h2{font-size:17px}a{color:#80c7ff}p,small{color:#9fb0c5}section{border:1px solid #29394d;background:#111c2a;margin:16px 0;padding:18px}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:10px;border-bottom:1px solid #29394d}th{color:#a7bad0;font-size:12px}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.card{background:#172638;padding:13px}.card label{font-size:12px;color:#a7bad0}.card b{display:block;font-size:22px}pre{white-space:pre-wrap;word-break:break-all;color:#a5bad3}@media(max-width:700px){.cards{grid-template-columns:1fr 1fr}}</style></head><body><a href="/">← Node Summary</a><h1 id="title">GPU DETAIL</h1><p id="meta"></p><section><h2>Compute · Precision</h2><p>Dense theoretical reference, when the exact SKU can be matched. An unverified sparsity path is not a proven peak comparison.</p><table><thead><tr><th>Precision</th><th>Measured</th><th>Peak</th><th>Attainment</th></tr></thead><tbody id="compute"></tbody></table></section><section><h2>Memory</h2><div class="cards" id="memory"></div></section><section><h2>Hardware Health</h2><div class="cards" id="health"></div></section><section><h2>Collector / Metric provenance</h2><pre id="diagnostics"></pre></section>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPU Pulse · GPU Detail</title>
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { max-width: 1200px; margin: auto; padding: 24px; background: #0b1220; color: #e6edf8; font: 14px/1.5 system-ui; }
+header { margin-bottom: 24px; }
+h1 { font-size: 24px; margin: 6px 0; }
+h2 { font-size: 17px; margin: 0 0 10px; }
+p { margin: 0 0 10px; }
+a { color: #80c7ff; }
+small, .muted { color: #9fb0c5; }
+section, details { border: 1px solid #29394d; border-radius: 10px; background: #111c2a; margin: 14px 0; padding: 16px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 9px; border-bottom: 1px solid #29394d; }
+th { color: #a7bad0; font-size: 12px; }
+.cards, .charts { display: grid; gap: 10px; }
+.cards { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); margin: 12px 0; }
+.card { background: #172638; padding: 12px; }
+.card b { display: block; font-size: 20px; }
+.chart { width: 100%; height: 160px; display: block; }
+.key { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 4px 0 8px; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+#error { color: #ecb79d; }
+@media (max-width: 600px) { body { padding: 12px; } th, td { padding: 5px; font-size: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <a href="/" id="back" hidden>← Node Summary</a>
+  <h1 id="title">GPU Detail</h1>
+  <p class="muted" id="meta">Connecting</p>
+  <p id="error" role="status"></p>
+</header>
+<section>
+  <h2>Compute</h2>
+  <div class="cards" id="compute-cards"></div>
+  <div class="charts" id="compute-charts"></div>
+  <p class="muted">Attainment uses the matching SKU’s dense theoretical peak. Runtime sparsity is unverified.</p>
+  <table>
+    <thead><tr><th>Precision / path</th><th>Measured</th><th>Peak</th><th>Attainment</th></tr></thead>
+    <tbody id="precision"></tbody>
+  </table>
+</section>
+<section>
+  <h2>Memory</h2>
+  <div class="cards" id="memory-cards"></div>
+  <div class="charts" id="memory-charts"></div>
+</section>
+<section>
+  <h2>Hardware Health</h2>
+  <div class="cards" id="health-cards"></div>
+</section>
+<details>
+  <summary>Collector and metric provenance</summary>
+  <pre id="diagnostics"></pre>
+</details>
 <script>
-const uuid=decodeURIComponent(location.pathname.slice(5)),$=id=>document.getElementById(id),f=x=>Number.isFinite(x)?Number(x).toFixed(2):'N/A';
-function row(parts){let tr=document.createElement('tr');for(let p of parts){let td=document.createElement('td');td.textContent=String(p??'N/A');tr.append(td)}return tr}
-async function refresh(){try{let d=await fetch('/api/v1/gpus/'+encodeURIComponent(uuid)+'/metrics').then(r=>r.json());$('title').textContent='GPU DETAIL · '+d.gpu.model;$('meta').textContent=d.gpu.uuid+' · PCI '+d.gpu.pci_bus_id+' · SKU '+(d.sku||d.peak_status)+' · '+d.collector.status;let c=$('compute');c.replaceChildren();for(let [k,m] of Object.entries(d.compute||{})){c.append(row([k,f(m.measured)+' '+(m.unit||''),f(m.peak)+' '+(m.unit||''),f(m.attainment_pct)+'%']))}let mem=$('memory');mem.replaceChildren();for(let [key,label,unit] of [['dram_read_gbps','DRAM Read','GB/s'],['dram_write_gbps','DRAM Write','GB/s'],['l1_hit_pct','L1 Hit','%'],['l2_hit_pct','L2 Hit','%']]){let x=document.createElement('div');x.className='card';let l=document.createElement('label');l.textContent=label;let b=document.createElement('b');b.textContent=f(d.measurements[key]);let u=document.createElement('small');u.textContent=unit;x.append(l,b,u);mem.append(x)}let health=$('health');health.replaceChildren();for(let [key,label,unit] of [['temperature_c','Temperature','°C'],['power_w','Power Draw','W'],['power_limit_w','Power Limit','W'],['sm_clock_mhz','SM Clock','MHz'],['memory_clock_mhz','Memory Clock','MHz'],['memory_used_mib','Used VRAM','MiB']]){let x=document.createElement('div');x.className='card';let l=document.createElement('label');l.textContent=label;let b=document.createElement('b');b.textContent=f(d.health?.[key]);let u=document.createElement('small');u.textContent=unit;x.append(l,b,u);health.append(x)}$('diagnostics').textContent=JSON.stringify({collector:d.collector,peak_source:d.peak_source,raw_metrics:d.raw_metrics,last_host_received_ns:d.last_host_received_ns},null,2)}catch(e){$('diagnostics').textContent=String(e)}}
-refresh();setInterval(refresh,2000);
-</script></body></html>
+const $ = id => document.getElementById(id);
+const path = location.pathname;
+const usedByNode = path.startsWith('/gpu/');
+const metricsURL = usedByNode ? '/api/v1/gpus/' + path.slice(5) : '';
+$('back').hidden = !usedByNode;
+const compute = [
+  ['tensor_tflops', 'Tensor Core', 'TFLOP/s', '#7cc7fc'],
+  ['cuda_fp32_tflops', 'CUDA FP32', 'TFLOP/s', '#d0a5ef']
+];
+const dram = [
+  ['dram_read_gbps', 'DRAM Read', 'GB/s', '#70e0b8'],
+  ['dram_write_gbps', 'DRAM Write', 'GB/s', '#eca77a']
+];
+const cache = [
+  ['l1_hit_pct', 'L1/TEX Hit', '%', '#7cc7fc'],
+  ['l2_hit_pct', 'L2 Hit', '%', '#f5d18d']
+];
+const health = [
+  ['temperature_c', 'Temperature', '°C'], ['power_w', 'Power Draw', 'W'],
+  ['power_limit_w', 'Power Limit', 'W'], ['sm_clock_mhz', 'SM Clock', 'MHz'],
+  ['memory_clock_mhz', 'Memory Clock', 'MHz'], ['memory_used_mib', 'Used VRAM', 'MiB'],
+  ['memory_mib', 'Total VRAM', 'MiB']
+];
+const format = (value, unit) => Number.isFinite(value)
+  ? value.toLocaleString('en-US', {maximumFractionDigits: 2}) + (unit ? ' ' + unit : '')
+  : 'N/A';
+
+function createCards(group, fields) {
+  return fields.map(([key, label, unit]) => {
+    const card = document.createElement('div');
+    const title = document.createElement('small');
+    const value = document.createElement('b');
+    card.className = 'card';
+    title.textContent = label;
+    value.textContent = 'N/A';
+    card.append(title, value);
+    $(group).append(card);
+    return [key, value, unit];
+  });
+}
+const computeCards = createCards('compute-cards', compute);
+const memoryCards = createCards('memory-cards', [...dram, ...cache, ['peak', 'DRAM Bandwidth Peak', 'GB/s']]);
+const healthCards = createCards('health-cards', health);
+function updateCards(cards, values) {
+  for (const [key, element, unit] of cards) element.textContent = format(values[key], unit);
+}
+
+function createChart(group, title, lines, fixedMax) {
+  const box = document.createElement('div');
+  const caption = document.createElement('small');
+  const canvas = document.createElement('canvas');
+  canvas.className = 'chart';
+  canvas.setAttribute('role', 'img');
+  canvas.setAttribute('aria-label', title);
+  caption.textContent = title;
+  for (const [, label, , color] of lines) {
+    const key = document.createElement('span');
+    key.className = 'key';
+    key.style.backgroundColor = color;
+    caption.append(key, label);
+  }
+  box.append(caption, canvas);
+  $(group).append(box);
+  return {canvas, lines, fixedMax};
+}
+const charts = [
+  createChart('compute-charts', 'Recent compute · TFLOP/s', compute),
+  createChart('memory-charts', 'Recent DRAM · GB/s', dram),
+  createChart('memory-charts', 'Recent cache hit rate · %', cache, 100)
+];
+
+function draw({canvas, lines, fixedMax}, samples) {
+  const {clientWidth: width, clientHeight: height} = canvas;
+  if (width <= 60 || height <= 40) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const left = 45, right = width - 12, top = 12, bottom = height - 24;
+  const values = samples.flatMap(s => lines.map(([key]) => s.measurements?.[key]).filter(Number.isFinite));
+  const max = fixedMax || Math.max(1, ...values) * 1.14;
+  ctx.font = '11px system-ui';
+  ctx.fillStyle = '#9fb0c5';
+  ctx.textAlign = 'right';
+  for (let tick = 0; tick <= 4; tick++) {
+    const y = top + (bottom - top) * tick / 4;
+    ctx.strokeStyle = '#34445a';
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(right, y);
+    ctx.stroke();
+    ctx.fillText(format(max * (4 - tick) / 4), left - 5, y + 4);
+  }
+  for (const [key, , , color] of lines) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    let previous = null;
+    samples.forEach((sample, i) => {
+      const value = sample.measurements?.[key];
+      if (!Number.isFinite(value)) {
+        previous = null;
+        return;
+      }
+      const x = left + (right - left) * i / Math.max(1, samples.length - 1);
+      const y = bottom - value / max * (bottom - top);
+      ctx.beginPath();
+      if (previous) {
+        ctx.moveTo(...previous);
+        ctx.lineTo(x, y);
+      } else {
+        ctx.arc(x, y, 2, 0, 2 * Math.PI);
+      }
+      ctx.stroke();
+      previous = [x, y];
+    });
+  }
+  ctx.textAlign = 'left';
+  ctx.fillText(`${samples.length} recent GPU samples`, left, bottom + 17);
+}
+
+function updatePrecision(comparisons) {
+  const rows = Object.entries(comparisons).map(([key, record]) =>
+    [key, format(record.measured, record.unit), format(record.peak, record.unit), format(record.attainment_pct, '%')]
+  );
+  if (!rows.length) rows.push(['No precision metrics available', 'N/A', 'N/A', 'N/A']);
+  $('precision').replaceChildren(...rows.map(values => {
+    const row = document.createElement('tr');
+    for (const value of values) {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.append(cell);
+    }
+    return row;
+  }));
+}
+
+async function getJSON(url) {
+  const response = await fetch(url, {cache: 'no-store'});
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+let latestSamples = [];
+async function refresh() {
+  try {
+    const [data, history] = usedByNode
+      ? await Promise.all([getJSON(metricsURL + '/metrics'), getJSON(metricsURL + '/history')])
+      : [await getJSON('/api/detail')];
+    const {gpu, collector} = data;
+    $('title').textContent = gpu.model || `GPU ${gpu.cuda_index ?? ''} Detail`;
+    $('meta').textContent = [
+      gpu.uuid, gpu.pci_bus_id && 'PCI ' + gpu.pci_bus_id, collector?.chip,
+      data.sku || data.peak_status, collector?.status || 'UNKNOWN'
+    ].filter(Boolean).join(' · ');
+    $('error').textContent = collector?.last_error || '';
+    updateCards(computeCards, data.measurements);
+    updateCards(memoryCards, {...data.measurements, peak: data.memory_bandwidth_peak_gbps});
+    updateCards(healthCards, {...data.health, memory_mib: gpu.memory_mib});
+    updatePrecision(data.compute);
+    latestSamples = (history || data).samples;
+    for (const chart of charts) draw(chart, latestSamples);
+    $('diagnostics').textContent = JSON.stringify({
+      collector, peak_source: data.peak_source, raw_metrics: data.raw_metrics,
+      last_host_received_ns: data.last_host_received_ns
+    }, null, 2);
+  } catch (error) {
+    $('error').textContent = 'Dashboard disconnected: ' + error.message;
+  } finally {
+    setTimeout(refresh, usedByNode ? 2000 : 700);
+  }
+}
+window.addEventListener('resize', () => charts.forEach(chart => draw(chart, latestSamples)));
+refresh();
+</script>
+</body>
+</html>

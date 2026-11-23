@@ -125,7 +125,8 @@
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-sg/data-center/l40s/"
         }
-      }
+      },
+      "memory_mib_range": [45056, 52224]
     },
     {
       "sku": "a100-40gb-sxm",
@@ -172,6 +173,50 @@
       }
     },
     {
+      "sku": "a100-40gb-pcie",
+      "aliases": [
+        "A100"
+      ],
+      "requires": [
+        "PCIE"
+      ],
+      "memory_gb": 40,
+      "memory_bandwidth_gbps": 1555,
+      "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 19.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf"
+        },
+        "fp64.cuda.dense": {
+          "value": 9.7,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf"
+        },
+        "tf32.tensor.dense": {
+          "value": 156,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf"
+        },
+        "fp16.tensor.dense": {
+          "value": 312,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf"
+        },
+        "bf16.tensor.dense": {
+          "value": 312,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf"
+        }
+      }
+    },
+    {
       "sku": "a100-80gb-sxm",
       "aliases": [
         "A100"
@@ -212,6 +257,50 @@
           "unit": "TFLOP/s",
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        }
+      }
+    },
+    {
+      "sku": "a100-80gb-pcie",
+      "aliases": [
+        "A100"
+      ],
+      "requires": [
+        "PCIE"
+      ],
+      "memory_gb": 80,
+      "memory_bandwidth_gbps": 1935,
+      "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 19.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf"
+        },
+        "fp64.cuda.dense": {
+          "value": 9.7,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf"
+        },
+        "tf32.tensor.dense": {
+          "value": 156,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf"
+        },
+        "fp16.tensor.dense": {
+          "value": 312,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf"
+        },
+        "bf16.tensor.dense": {
+          "value": 312,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf"
         }
       }
     },
@@ -263,7 +352,11 @@
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h100/"
         }
-      }
+      },
+      "exact_names": [
+        "H100 80GB HBM3",
+        "H100 80 GB HBM3"
+      ]
     },
     {
       "sku": "h200-141gb-sxm",
@@ -313,7 +406,11 @@
           "sparsity": "dense",
           "source": "https://www.nvidia.com/en-us/data-center/h200/"
         }
-      }
+      },
+      "exact_names": [
+        "H200",
+        "H200 141GB HBM3E"
+      ]
     },
     {
       "sku": "b200-hgx-sxm",
@@ -386,7 +483,7 @@
       "aliases": [
         "B300"
       ],
-      "memory_gb": 270,
+      "memory_gb": 288,
       "memory_bandwidth_gbps": 7700,
       "source": "https://www.nvidia.com/en-us/data-center/hgx/",
       "compute_peaks": {
@@ -445,7 +542,8 @@
           "source": "https://www.nvidia.com/en-us/data-center/hgx/"
         }
       },
-      "memory_bandwidth_source": "https://resources.nvidia.com/en-us-blackwell-architecture/blackwell-ultra-datasheet"
+      "memory_bandwidth_source": "https://resources.nvidia.com/en-us-blackwell-architecture/blackwell-ultra-datasheet",
+      "memory_mib_range": [273408, 297984]
     }
   ]
 }

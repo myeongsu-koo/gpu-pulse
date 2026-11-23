@@ -1,6 +1,7 @@
 """SKU-safe peak matching: never substitute matrix throughput for CUDA FLOP/s."""
 from __future__ import annotations
 import json
+import re
 from pathlib import Path
 
 REGISTRY_PATH = Path(__file__).with_name("peak_specs.json")
@@ -15,24 +16,36 @@ def load_registry(path=None):
 
 
 def _normalized(name):
-    return " ".join(name.upper().replace("NVIDIA", "").split())
+    tokens = re.findall(r"[A-Z0-9]+", name.upper())
+    return " ".join(tokens[1:] if tokens[:1] == ["NVIDIA"] else tokens)
 
 
 def match_peak(gpu, registry=None):
-    """Return explicit match or status; ambiguous GPU identifiers do not imply SXM."""
+    """Match driver names or explicit variant markers and validate total memory in MiB."""
     registry = load_registry() if registry is None else registry
-    name = _normalized(gpu.get("model", ""))
+    name = _normalized(gpu.get("model") or "")
+    tokens = set(name.split())
+    if any(re.fullmatch(r"SXM[0-9]+", token) for token in tokens):
+        tokens.add("SXM")
+    if "SXM" in tokens and tokens.intersection({"PCIE", "NVL"}):
+        return {"status": "SPEC_UNAVAILABLE", "sku": None, "candidates": []}
     memory = gpu.get("memory_mib")
+    capacity = re.search(r"\b(\d+) ?GB\b", name)
     candidates = []
     for spec in registry:
-        aliases = spec["aliases"]
-        if not any((" " + _normalized(alias) + " ") in (" " + name + " ") for alias in aliases):
+        exact = any(name == _normalized(alias) for alias in spec.get("exact_names", ()))
+        if not exact:
+            if not any(f" {_normalized(alias)} " in f" {name} " for alias in spec["aliases"]):
+                continue
+            if not tokens.issuperset(spec.get("requires", ())):
+                continue
+        nominal = spec.get("memory_gb")
+        if capacity and "A100" in tokens and int(capacity.group(1)) != nominal:
             continue
-        if spec.get("requires") and not all(word in name for word in spec["requires"]):
-            continue
-        if spec.get("memory_gb") and memory is not None:
-            # nvidia-smi MiB, tolerate display rounding / reserved memory.
-            if abs(memory / 1024 - spec["memory_gb"]) > 3:
+        if nominal and memory is not None:
+            # Per-SKU ranges account for the reported capacity after reservations.
+            lower, upper = spec.get("memory_mib_range", ((nominal - 3) * 1024, (nominal + 3) * 1024))
+            if not lower <= memory <= upper:
                 continue
         candidates.append(spec)
     if len(candidates) == 1:

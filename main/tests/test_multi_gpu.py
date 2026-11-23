@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from gpu_discovery import _bus_id, discover_gpus
 from node_aggregator import node_summary, compute_summary
@@ -59,9 +59,40 @@ class PeakTests(unittest.TestCase):
         self.assertEqual(p["status"], "MATCHED")
         self.assertEqual(p["spec"]["compute_peaks"]["fp16.tensor.dense"]["value"], 121)
 
-    def test_h100_without_form_factor_is_not_assumed_sxm(self):
-        p = match_peak(gpu("GPU-a", model="NVIDIA H100 80GB HBM3", mib=81920))
-        self.assertNotEqual(p["status"], "MATCHED")
+    def test_driver_names_and_reported_memory_match(self):
+        cases = [
+            ("NVIDIA H100 80GB HBM3", 81559, "h100-80gb-sxm"),
+            ("NVIDIA H200", 143771, "h200-141gb-sxm"),
+            ("NVIDIA A100-SXM4-40GB", 40536, "a100-40gb-sxm"),
+            ("NVIDIA-A100-SXM4-80GB", 81920, "a100-80gb-sxm"),
+            ("NVIDIA A100-PCIE-40GB", 40536, "a100-40gb-pcie"),
+            ("NVIDIA A100 80GB PCIe", 81920, "a100-80gb-pcie"),
+            ("NVIDIA L40S", 46068, "l40s-48gb-pcie"),
+            ("NVIDIA B300 SXM6 AC", 275040, "b300-hgx-sxm"),
+            ("NVIDIA B300", 288 * 1024, "b300-hgx-sxm"),
+            ("NVIDIA B200", 183359, "b200-hgx-sxm"),
+            ("NVIDIA L4", 23034, "l4-24gb-pcie"),
+            ("Tesla T4", 15360, "t4-16gb-pcie"),
+        ]
+        for model, mib, sku in cases:
+            with self.subTest(model=model, mib=mib):
+                self.assertEqual(match_peak(gpu("GPU-a", model=model, mib=mib))["sku"], sku)
+
+    def test_variant_and_memory_checks_reject_incompatible_matches(self):
+        cases = [
+            ("NVIDIA H100", 81559),
+            ("NVIDIA H100 PCIe", 81559),
+            ("NVIDIA H100 NVL", 95830),
+            ("NVIDIA H200 NVL", 143771),
+            ("NVIDIA A100 80GB", 81920),
+            ("NVIDIA A100-SXM4-40GB", 81920),
+            ("NVIDIA L40S", 24000),
+            ("NVIDIA B300", 183359),
+        ]
+        for model, mib in cases:
+            with self.subTest(model=model, mib=mib):
+                self.assertEqual(match_peak(gpu("GPU-a", model=model, mib=mib))["status"],
+                                 "SPEC_UNAVAILABLE")
 
     def test_peak_unknown_does_not_infer(self):
         self.assertEqual(match_peak(gpu("GPU-z", model="Unlisted NVIDIA GPU"))["status"], "SPEC_UNAVAILABLE")
@@ -148,6 +179,7 @@ class NodeAgentTests(unittest.TestCase):
         import threading
         import urllib.request
         from node_agent import NodeSupervisor, create_server
+        from webui import PAGE
         with tempfile.TemporaryDirectory() as folder:
             agent = NodeSupervisor([gpu("GPU-a")], output_dir=folder)
             httpd = create_server(agent, host="127.0.0.1", port=0)
@@ -161,11 +193,46 @@ class NodeAgentTests(unittest.TestCase):
                 self.assertEqual(read("/api/v1/node/summary")["gpu_count"], 1)
                 self.assertEqual(read("/api/v1/gpus")["gpus"][0]["uuid"], "GPU-a")
                 self.assertEqual(read("/api/v1/gpus/GPU-a/metrics")["sku"], "l4-24gb-pcie")
+                with urllib.request.urlopen(origin + "/gpu/GPU-a", timeout=3) as response:
+                    self.assertEqual(response.read(), PAGE.read_bytes())
+                self.assertEqual(read("/api/v1/gpus/GPU-a/history")["samples"], [])
                 self.assertEqual(read("/api/v1/peak-specs/b300-hgx-sxm")["sku"], "b300-hgx-sxm")
             finally:
                 httpd.shutdown()
                 httpd.server_close()
                 thread.join(timeout=3)
+
+
+class StandaloneDashboardTests(unittest.TestCase):
+    def test_shared_page_and_legacy_state(self):
+        import urllib.request
+        from webui import PAGE, start_server
+
+        sample = {"measurements": {"dram_read_gbps": 12},
+                  "precision_metrics": {"fp16.tensor.dense": {"value": 60.5, "unit": "TFLOP/s"}}}
+        snapshot = {"status": {"device": 1, "state": "running"}, "samples": [sample]}
+        with (patch("webui.discover_gpus", return_value=[gpu("GPU-b", cuda=1)]) as inventory,
+              patch("webui.read_gpu_health", return_value={"GPU-b": {"temperature_c": 29}})):
+            state = Mock()
+            state.snapshot.return_value = snapshot
+            server = start_server(state, port=0)
+            try:
+                def read(path):
+                    with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}{path}", timeout=3) as response:
+                        return response.read()
+
+                self.assertEqual(read("/"), PAGE.read_bytes())
+                self.assertEqual(read("/dashboard.html"), PAGE.read_bytes())
+                self.assertEqual(json.loads(read("/api/state")), snapshot)
+                detail = json.loads(read("/api/detail"))
+                self.assertEqual(detail["sku"], "l4-24gb-pcie")
+                self.assertEqual(detail["compute"]["fp16.tensor.dense"]["attainment_pct"], 50)
+                self.assertEqual(detail["health"]["temperature_c"], 29)
+                self.assertEqual(detail["samples"], [sample])
+                inventory.assert_called_once()
+            finally:
+                server.shutdown()
+                server.server_close()
 
 
 if __name__ == "__main__":
