@@ -45,6 +45,8 @@ SPECS = [
     MetricSpec("l2_hit_realtime", "lts__average_t_sector_hit_rate_realtime", ".pct", "cache", weight=3),
 ]
 
+SECTOR_BYTES = 32  # NVIDIA memory sector size (bytes)
+
 KEY_TO_SPEC = {s.key: s for s in SPECS}
 TARGETS = ("tensor_tflops", "cuda_fp32_tflops", "dram_read_gbps", "dram_write_gbps", "l1_hit_pct", "l2_hit_pct")
 
@@ -95,24 +97,46 @@ def _safe_num(x: object) -> float | None:
 
 
 def to_dashboard_values(values: dict[str, object], selected: list[MetricSpec], sample_seconds: float | None = None) -> dict[str, float | None]:
-    """Convert already time-normalized PerfWorks .per_second to TF/s and GB/s.
+    """Normalize supported counters to TFLOP/s, decimal GB/s and percent.
 
-    Never use a partial FP32 opcode set: missing ADD/MUL/FMA produces null.
-    Tensor value may cover only supported precisions; coverage reported separately.
+    Byte .sum.per_second metrics are already rates. L4-style sector .sum metrics
+    are per-sample counts and require a valid sample duration in seconds.
+    A missing/invalid duration MUST NOT produce an estimated sector rate.
     """
     out: dict[str, float | None] = {k: None for k in TARGETS}
-    present = {s.key: s for s in selected if s.name in values and _safe_num(values[s.name]) is not None}
+    present = {
+        s.key: s for s in selected
+        if s.name in values and _safe_num(values[s.name]) is not None
+    }
     tensor = [s for s in selected if s.category == "tensor" and s.key in present]
     if tensor:
         out["tensor_tflops"] = sum(float(values[s.name]) * s.factor for s in tensor) / 1e12
     if {"fadd", "fmul", "ffma"}.issubset(present):
-        out["cuda_fp32_tflops"] = sum(float(values[present[k].name]) * present[k].factor for k in ("fadd", "fmul", "ffma")) / 1e12
-    for k, target in (("dram_read", "dram_read_gbps"), ("dram_write", "dram_write_gbps")):
-        if k in present:
-            out[target] = float(values[present[k].name]) / 1e9
-    for k, target in (("l1_hit", "l1_hit_pct"), ("l2_hit", "l2_hit_pct")):
-        if k in present:
-            out[target] = float(values[present[k].name])
+        out["cuda_fp32_tflops"] = sum(
+            float(values[present[k].name]) * present[k].factor
+            for k in ("fadd", "fmul", "ffma")
+        ) / 1e12
+
+    duration = _safe_num(sample_seconds)
+    # A zero-duration sample is invalid, even though a zero counter is valid.
+    duration = duration if duration is not None and duration > 0 else None
+    for direct, fallback, target in (
+        ("dram_read", "dram_read_sectors", "dram_read_gbps"),
+        ("dram_write", "dram_write_sectors", "dram_write_gbps"),
+    ):
+        if direct in present:
+            # Already bytes/second: never divide by the sample duration again.
+            out[target] = float(values[present[direct].name]) / 1e9
+        elif fallback in present and duration is not None:
+            sectors = float(values[present[fallback].name])
+            out[target] = sectors * SECTOR_BYTES / duration / 1e9
+
+    if "l1_hit" in present:
+        out["l1_hit_pct"] = float(values[present["l1_hit"].name])
+    for key in ("l2_hit", "l2_hit_realtime"):
+        if key in present:
+            out["l2_hit_pct"] = float(values[present[key].name])
+            break
     return out
 
 
@@ -121,10 +145,10 @@ def coverage(selected: list[MetricSpec]) -> dict[str, object]:
     return {
         "tensor_precisions": [k.removeprefix("tensor_") for k in ("tensor_fp16", "tensor_bf16", "tensor_tf32", "tensor_fp8") if k in keys],
         "cuda_fp32_complete": {"fadd", "fmul", "ffma"}.issubset(keys),
-        "dram_read": "dram_read" in keys,
-        "dram_write": "dram_write" in keys,
+        "dram_read": bool({"dram_read", "dram_read_sectors"} & keys),
+        "dram_write": bool({"dram_write", "dram_write_sectors"} & keys),
         "l1_hit": "l1_hit" in keys,
-        "l2_hit": "l2_hit" in keys,
+        "l2_hit": bool({"l2_hit", "l2_hit_realtime"} & keys),
         "not_counted": [s.key for s in SPECS if s.key not in keys],
         "warning": "A present metric covers ONLY its named paths; null is not zero. For tensor, unlisted precisions are omitted.",
     }
