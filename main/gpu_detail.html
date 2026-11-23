@@ -146,6 +146,10 @@ function draw({canvas, lines, fixedMax}, samples) {
     ctx.stroke();
     ctx.fillText(format(max * (4 - tick) / 4), left - 5, y + 4);
   }
+  const stamp = (sample) => sample.gpu_end_ns ?? sample.host_received_ns;
+  const first = samples.length && stamp(samples[0]);
+  const last = samples.length && stamp(samples.at(-1));
+  const timed = Number.isFinite(first) && Number.isFinite(last) && last > first;
   for (const [key, , , color] of lines) {
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
@@ -156,7 +160,9 @@ function draw({canvas, lines, fixedMax}, samples) {
         previous = null;
         return;
       }
-      const x = left + (right - left) * i / Math.max(1, samples.length - 1);
+      const progress = timed && Number.isFinite(stamp(sample))
+        ? (stamp(sample) - first) / (last - first) : i / Math.max(1, samples.length - 1);
+      const x = left + (right - left) * progress;
       const y = bottom - value / max * (bottom - top);
       ctx.beginPath();
       if (previous) {
@@ -170,12 +176,12 @@ function draw({canvas, lines, fixedMax}, samples) {
     });
   }
   ctx.textAlign = 'left';
-  ctx.fillText(`${samples.length} recent GPU samples`, left, bottom + 17);
+  ctx.fillText(`${samples.length} points${timed ? ` · ${format((last - first) / 1e9)} s` : ''}`, left, bottom + 17);
 }
 
 function updatePrecision(comparisons) {
   const rows = Object.entries(comparisons).map(([key, record]) =>
-    [key, format(record.measured, record.unit), format(record.peak, record.unit), format(record.attainment_pct, '%')]
+    [key, format(record.measured, record.unit), format(record.peak, record.unit) + (record.peak_origin === 'DERIVED' ? ' (derived)' : ''), format(record.attainment_pct, '%')]
   );
   if (!rows.length) rows.push(['No precision metrics available', 'N/A', 'N/A', 'N/A']);
   $('precision').replaceChildren(...rows.map(values => {
@@ -220,8 +226,8 @@ function render(data, samples) {
 async function refresh() {
   try {
     const [data, history] = usedByNode
-      ? await Promise.all([getJSON(metricsURL + '/metrics'), getJSON(metricsURL + '/history')])
-      : [await getJSON('/api/detail')];
+      ? await Promise.all([getJSON(metricsURL + '/metrics'), getJSON(metricsURL + '/history?view=chart')])
+      : [await getJSON('/api/detail?view=chart')];
     render(data, (history || data).samples);
   } catch (error) {
     $('error').textContent = 'Dashboard disconnected: ' + error.message;

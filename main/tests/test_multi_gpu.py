@@ -274,7 +274,7 @@ class StandaloneDashboardTests(unittest.TestCase):
                 detail = json.loads(read("/api/detail"))
                 self.assertEqual(detail["sku"], "l4-24gb-pcie")
                 self.assertEqual(detail["compute"]["fp16.tensor.dense"]["attainment_pct"], 50)
-                self.assertEqual(detail["health"], {})
+                self.assertNotIn("health", detail)
                 self.assertEqual(json.loads(read("/api/detail"))["samples"], [sample])
                 self.assertEqual(detail["samples"], [sample])
                 inventory.assert_called_once()

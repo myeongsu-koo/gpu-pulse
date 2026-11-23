@@ -1,4 +1,4 @@
-name: Python unit tests
+name: Python checks
 on:
   pull_request:
   push:
@@ -6,12 +6,30 @@ on:
 jobs:
   unit:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Run GPU-independent tests
+          python-version: ${{ matrix.python-version }}
+      - name: Compile and lint
         run: |
-          cd main
-          python -m unittest discover -s tests -v
+          python -m pip install ruff
+          python -m py_compile main/*.py main/demos/*.py main/tests/*.py
+          python -m ruff check .
+      - name: Run GPU-independent tests
+        working-directory: main
+        run: python -m unittest discover -s tests -v
+      - name: Install and smoke-test the package
+        run: |
+          python -m pip install .
+          gpu-pulse-observer --help
+          gpu-pulse-node --help
+          gpu-pulse-export --help
+          gpu-pulse-benchmark --help
+          cd "${RUNNER_TEMP}"
+          printf '%s\n' '{"device":0,"measurements":{"dram_read_gbps":120}}' > capture.jsonl
+          gpu-pulse-export capture.jsonl -o report.html
+          test -s report.html

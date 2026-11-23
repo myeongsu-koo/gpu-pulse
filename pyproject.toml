@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpu-pulse"
+version = "0.1.0"
+description = "NVIDIA GPU performance counter observability"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+collector = ["cupti-python>=13.2,<14"]
+
+[project.scripts]
+gpu-pulse-observer = "gpu_pulse.observer:main"
+gpu-pulse-node = "gpu_pulse.node_agent:main"
+gpu-pulse-export = "gpu_pulse.exporter_html:main"
+gpu-pulse-benchmark = "gpu_pulse.precision_bench:main"
+
+[tool.setuptools]
+packages = ["gpu_pulse"]
+package-dir = {gpu_pulse = "main"}
+
+[tool.setuptools.package-data]
+gpu_pulse = ["*.html", "peak_specs.json"]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]

@@ -4,6 +4,8 @@ GPU Pulse streams CUPTI measurements to a read-only local dashboard and writes N
 
 ## Requirements
 
+The observer retains a CUDA primary context on each sampled GPU. This can consume VRAM even though the observer launches no workload kernels. On GPUs configured for `EXCLUSIVE_PROCESS`, the observer and workload can contend for the single process context. Keep the observer off those production GPUs while an exclusive workload needs them. See the [CUDA primary-context API](https://docs.nvidia.com/cuda/cuda-driver-api/cuda_driver_api/group__CUDA__PRIMARY__CTX.html) and [CUDA compute modes](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html#nvidia-smi).
+
 - Linux x86_64 / aarch64 with supported NVIDIA driver, CUDA Toolkit and CUPTI libraries (`libcupti`, `nvperf*` accessible).
 - CUPTI Python >=13.2 and permissions to access NVIDIA GPU performance counters. Inventory uses the CUDA Driver API. GPU Pulse does not query NVML.
 - A GPU workload may run concurrently, but whether counters reflect other processes is not guaranteed by this code. **Do not interpret measurements as per-Pod, per-process or per-model**.
@@ -54,7 +56,13 @@ ssh -L 8766:127.0.0.1:8766 gpu-server
 | Node aggregate and inventory | `/api/v1/node/summary` and `/api/v1/gpus` |
 | Per-GPU measurements and history | `/api/v1/gpus/<uuid>/metrics` and `/api/v1/gpus/<uuid>/history` |
 
-The agent enumerates CUDA-visible devices and uses their CUDA ordinals directly. Devices whose CUDA names identify them as MIG instances appear with collection disabled. Each worker streams samples into a per-GPU in-memory ring buffer limited by `--history` (default 256 samples). The sample window resets when the agent restarts. The output directory contains worker stderr logs. Exit code 0 appears as `STOPPED`. Nonzero exits and launch errors appear as `FAILED`. Node aggregation aligns samples on host receipt time and reports partial coverage when measurements are missing. Cache hit rates are available per GPU.
+The agent enumerates CUDA-visible devices and uses their CUDA ordinals directly. CUDA devices identified as MIG instances remain visible with collection disabled.
+
+Both live dashboards expire samples by age (`--history-seconds`, default 120). A hard cap of 16,384 samples per GPU bounds memory at high sampling rates. The node agent exposes this cap as `--history`. Live GPU charts use half-second buckets. Node charts use duration-weighted per-GPU DRAM averages within one-second host-receipt buckets and sum the available GPU averages. A partial point shows how many GPUs contributed. Host receipt times approximate alignment across devices.
+
+The output directory contains stderr from each GPU's latest worker attempt. Exit code 0 appears as `STOPPED`. Failed launches and nonzero exits retry with per-GPU backoff from 2 to 60 seconds. The ring buffers reset when the agent restarts.
+
+Both dashboards listen on IPv4 loopback (`127.0.0.1`). Use SSH port forwarding for remote viewing.
 
 ## Generate an offline HTML report
 
@@ -78,11 +86,13 @@ The `curl` command is only for copying a capture from a running agent. Report ge
 - Driver names `NVIDIA H100 80GB HBM3` and `NVIDIA H200` resolve to SXM references. H100 PCIe and H100/H200 NVL remain outside the current registry.
 - The matcher accepts reported **total memory in MiB**, with per-SKU ranges for L40S and B300. Example totals include L40S at 46,068 MiB and B300 at 275,040 MiB. In Linux GPU Burn’s initialization line, the first memory number is total memory in MiB. The parenthesized numbers describe available memory and test allocation.
 
+Hopper and Blackwell compute records include `value_origin`. Derived records carry the published value, unit, divisor and, when relevant, GPU count and sparsity. HGX FP64 rows with ambiguous CUDA-only provenance are excluded from attainment.
+
 Driver names and peak references come from the [NVIDIA driver product list](https://download.nvidia.com/solaris/580.142/README/supportedchips.html) and [A100 datasheet](https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf). Example totals and units come from the [Cisco L40S reference deployment](https://www.cisco.com/c/en/us/td/docs/unified_computing/ucs/UCS_CVDs/flexpod_rag_nim.pdf), [Oracle B300 quickstart](https://github.com/oracle-quickstart/oci-gpu-quickstarts/blob/main/nvidia/B300/README-B300.md), and [GPU Burn source](https://github.com/wilicc/gpu-burn/blob/master/gpu_burn-drv.cpp).
 
 ## Standalone sample output
 
-When you pass `--output gpu0.jsonl` to the standalone observer, it appends one JSON object per CUPTI sample, with `gpu_start_ns`, `gpu_end_ns`, `sample_duration_ms`, `raw_metrics`, `measurements` and coverage. A typical structural example (not measured data):
+File output is off by default. When you pass `--output gpu0.jsonl` to the standalone observer, it appends one JSON object per CUPTI sample, with `gpu_start_ns`, `gpu_end_ns`, `sample_duration_ms`, `raw_metrics`, `measurements` and coverage. A typical structural example (not measured data):
 
 ```json
 {"gpu_start_ns": 1, "gpu_end_ns": 2, "measurements": {"tensor_tflops": null, "cuda_fp32_tflops": null, "dram_read_gbps": null, "dram_write_gbps": null, "l1_hit_pct": null, "l2_hit_pct": null}}

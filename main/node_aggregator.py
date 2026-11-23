@@ -2,7 +2,10 @@
 from __future__ import annotations
 import math
 import time
-from peak_registry import attain
+if __package__:
+    from .peak_registry import attain
+else:
+    from peak_registry import attain
 
 
 def _number(value):
@@ -96,7 +99,9 @@ def compute_summary(inventory, latest, peak_matches, metric_key, now_ns=None, ma
         value = (metrics.get(metric_key) or {}).get("value")
         spec = (peak_matches.get(uid, {}) or {}).get("spec") or {}
         peak_rec = spec.get("compute_peaks", {}).get(metric_key)
-        if not _number(value) or peak_rec is None or not _number(peak_rec.get("value")):
+        if not _number(value) or not peak_rec or not _number(peak_rec.get("value")):
+            continue
+        if peak_rec.get("value_origin") == "AMBIGUOUS_SOURCE":
             continue
         total += value
         peak += peak_rec["value"]
