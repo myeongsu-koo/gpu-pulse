@@ -152,3 +152,49 @@ def coverage(selected: list[MetricSpec]) -> dict[str, object]:
         "not_counted": [s.key for s in SPECS if s.key not in keys],
         "warning": "A present metric covers ONLY its named paths; null is not zero. For tensor, unlisted precisions are omitted.",
     }
+
+# Precision/path-specific decoded measurements. The existing aggregate
+# tensor_tflops field is retained for backward compatibility.
+PRECISION_TARGETS = {
+    "tensor_fp16": "fp16.tensor.dense",
+    "tensor_bf16": "bf16.tensor.dense",
+    "tensor_tf32": "tf32.tensor.dense",
+    "tensor_fp8": "fp8.tensor.dense",
+}
+
+
+def precision_dashboard_values(values: dict[str, object], selected: list[MetricSpec]) -> dict[str, dict]:
+    """Return ONLY genuine decoded arithmetic-operation rates.
+
+    A dense spec can be used as an *explicit reference*, but PM Sampling does
+    not independently prove runtime sparsity. That uncertainty is retained in
+    comparison_status and must be visible wherever a percentage is shown.
+    Integer operation rates are never inferred from FP tensor counters.
+    """
+    present = {
+        s.key: s for s in selected
+        if s.name in values and _safe_num(values[s.name]) is not None
+    }
+    result = {}
+    for key, metric in PRECISION_TARGETS.items():
+        spec = present.get(key)
+        if spec is None:
+            continue
+        result[metric] = {
+            "value": float(values[spec.name]) * spec.factor / 1e12,
+            "unit": "TFLOP/s",
+            "source_metric": spec.name,
+            "comparison_status": "DENSE_REFERENCE_UNVERIFIED",
+        }
+    if {"fadd", "fmul", "ffma"}.issubset(present):
+        fops = sum(
+            float(values[present[k].name]) * present[k].factor
+            for k in ("fadd", "fmul", "ffma")
+        )
+        result["fp32.cuda.dense"] = {
+            "value": fops / 1e12,
+            "unit": "TFLOP/s",
+            "source_metric": [present[k].name for k in ("fadd", "fmul", "ffma")],
+            "comparison_status": "MATCHED",
+        }
+    return result

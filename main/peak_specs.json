@@ -1,0 +1,451 @@
+{
+  "schema_version": 1,
+  "description": "Verified model/SKU peak reference. Missing bandwidth or precision means SPEC_UNAVAILABLE, never infer.",
+  "skus": [
+    {
+      "sku": "t4-16gb-pcie",
+      "aliases": [
+        "T4"
+      ],
+      "memory_gb": 16,
+      "memory_bandwidth_gbps": 320,
+      "source": "https://www.nvidia.com/en-us/data-center/tesla-t4/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 8.1,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/tesla-t4/"
+        },
+        "fp16.tensor.dense": {
+          "value": 65,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/tesla-t4/"
+        },
+        "int8.tensor.dense": {
+          "value": 130,
+          "unit": "TOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/tesla-t4/"
+        },
+        "int4.tensor.dense": {
+          "value": 260,
+          "unit": "TOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/tesla-t4/"
+        }
+      },
+      "memory_peak_quality": "LOWER_BOUND",
+      "memory_bandwidth_source": "https://www.nvidia.com/en-us/data-center/tesla-t4/"
+    },
+    {
+      "sku": "l4-24gb-pcie",
+      "aliases": [
+        "L4"
+      ],
+      "memory_gb": 24,
+      "memory_bandwidth_gbps": 300,
+      "source": "https://www.nvidia.com/en-us/data-center/l4/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 30.3,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/l4/"
+        },
+        "fp16.tensor.dense": {
+          "value": 121,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/l4/"
+        },
+        "bf16.tensor.dense": {
+          "value": 121,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/l4/"
+        },
+        "tf32.tensor.dense": {
+          "value": 60,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/l4/"
+        },
+        "fp8.tensor.dense": {
+          "value": 242,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/l4/"
+        }
+      }
+    },
+    {
+      "sku": "l40s-48gb-pcie",
+      "aliases": [
+        "L40S"
+      ],
+      "memory_gb": 48,
+      "memory_bandwidth_gbps": 864,
+      "source": "https://www.nvidia.com/en-sg/data-center/l40s/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 91.6,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-sg/data-center/l40s/"
+        },
+        "fp16.tensor.dense": {
+          "value": 362.05,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-sg/data-center/l40s/"
+        },
+        "bf16.tensor.dense": {
+          "value": 362.05,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-sg/data-center/l40s/"
+        },
+        "tf32.tensor.dense": {
+          "value": 183,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-sg/data-center/l40s/"
+        },
+        "fp8.tensor.dense": {
+          "value": 733,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-sg/data-center/l40s/"
+        },
+        "int8.tensor.dense": {
+          "value": 733,
+          "unit": "TOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-sg/data-center/l40s/"
+        }
+      }
+    },
+    {
+      "sku": "a100-40gb-sxm",
+      "aliases": [
+        "A100"
+      ],
+      "requires": [
+        "SXM"
+      ],
+      "memory_gb": 40,
+      "memory_bandwidth_gbps": 1555,
+      "source": "https://www.nvidia.com/en-us/data-center/a100/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 19.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        },
+        "fp64.cuda.dense": {
+          "value": 9.7,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        },
+        "tf32.tensor.dense": {
+          "value": 156,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        },
+        "fp16.tensor.dense": {
+          "value": 312,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        },
+        "bf16.tensor.dense": {
+          "value": 312,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        }
+      }
+    },
+    {
+      "sku": "a100-80gb-sxm",
+      "aliases": [
+        "A100"
+      ],
+      "requires": [
+        "SXM"
+      ],
+      "memory_gb": 80,
+      "memory_bandwidth_gbps": 2039,
+      "source": "https://www.nvidia.com/en-us/data-center/a100/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 19.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        },
+        "fp64.cuda.dense": {
+          "value": 9.7,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        },
+        "tf32.tensor.dense": {
+          "value": 156,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        },
+        "fp16.tensor.dense": {
+          "value": 312,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        },
+        "bf16.tensor.dense": {
+          "value": 312,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/a100/"
+        }
+      }
+    },
+    {
+      "sku": "h100-80gb-sxm",
+      "aliases": [
+        "H100"
+      ],
+      "requires": [
+        "SXM"
+      ],
+      "memory_gb": 80,
+      "memory_bandwidth_gbps": 3350,
+      "source": "https://www.nvidia.com/en-us/data-center/h100/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 67,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h100/"
+        },
+        "fp64.cuda.dense": {
+          "value": 34,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h100/"
+        },
+        "tf32.tensor.dense": {
+          "value": 494.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h100/"
+        },
+        "fp16.tensor.dense": {
+          "value": 989.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h100/"
+        },
+        "bf16.tensor.dense": {
+          "value": 989.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h100/"
+        },
+        "fp8.tensor.dense": {
+          "value": 1979,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h100/"
+        }
+      }
+    },
+    {
+      "sku": "h200-141gb-sxm",
+      "aliases": [
+        "H200"
+      ],
+      "requires": [
+        "SXM"
+      ],
+      "memory_gb": 141,
+      "memory_bandwidth_gbps": 4800,
+      "source": "https://www.nvidia.com/en-us/data-center/h200/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 67,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/"
+        },
+        "fp64.cuda.dense": {
+          "value": 34,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/"
+        },
+        "tf32.tensor.dense": {
+          "value": 494.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/"
+        },
+        "fp16.tensor.dense": {
+          "value": 989.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/"
+        },
+        "bf16.tensor.dense": {
+          "value": 989.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/"
+        },
+        "fp8.tensor.dense": {
+          "value": 1979,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/"
+        }
+      }
+    },
+    {
+      "sku": "b200-hgx-sxm",
+      "aliases": [
+        "B200"
+      ],
+      "memory_gb": 180,
+      "memory_bandwidth_gbps": 7700,
+      "source": "https://www.nvidia.com/en-us/data-center/hgx/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 75,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "fp64.cuda.dense": {
+          "value": 37,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "tf32.tensor.dense": {
+          "value": 1125,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "fp16.tensor.dense": {
+          "value": 2250,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "bf16.tensor.dense": {
+          "value": 2250,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "fp8.tensor.dense": {
+          "value": 4500,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "fp6.tensor.dense": {
+          "value": 4500,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "fp4.tensor.dense": {
+          "value": 9000,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "int8.tensor.dense": {
+          "value": 4500,
+          "unit": "TOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        }
+      },
+      "memory_bandwidth_source": "https://lenovopress.lenovo.com/lp2226-thinksystem-nvidia-b200-180gb-1000w-gpu"
+    },
+    {
+      "sku": "b300-hgx-sxm",
+      "aliases": [
+        "B300"
+      ],
+      "memory_gb": 270,
+      "memory_bandwidth_gbps": 7700,
+      "source": "https://www.nvidia.com/en-us/data-center/hgx/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 75,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "fp64.cuda.dense": {
+          "value": 1.25,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "tf32.tensor.dense": {
+          "value": 1125,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "fp16.tensor.dense": {
+          "value": 2250,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "bf16.tensor.dense": {
+          "value": 2250,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "fp8.tensor.dense": {
+          "value": 4500,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "fp6.tensor.dense": {
+          "value": 4500,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "fp4.tensor.dense": {
+          "value": 13500,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        },
+        "int8.tensor.dense": {
+          "value": 187.5,
+          "unit": "TOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/hgx/"
+        }
+      },
+      "memory_bandwidth_source": "https://resources.nvidia.com/en-us-blackwell-architecture/blackwell-ultra-datasheet"
+    }
+  ]
+}
