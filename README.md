@@ -1,93 +1,44 @@
 # GPU Pulse
 
-**GPU execution & throughput observability powered by NVIDIA CUPTI**
+GPU Pulse collects live NVIDIA GPU performance counters with CUPTI PM Sampling. Use Node Summary to scan a multi-GPU host and open any GPU’s Detail page. The standalone collector serves the same GPU Detail dashboard for a single device.
 
-GPU Pulse is an experimental GPU-performance observability project that combines **hardware performance counters** with **measured GEMM throughput**. Its Colab proof of concept profiles a 60-second variable workload and visualizes the results on a synchronized timeline.
+## Run on a GPU host
 
-## Dashboard preview
+```bash
+cd main
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-> GPU Pulse metric cards
-<div align="left" >
-  <table>
-    <tr>
-      <td align="left" width="50%">
-        <img src="https://github.com/user-attachments/assets/61a273a9-c189-4257-a284-b776b586846e" alt="image" width="100%" />
-        <sub>NVIDIA L4 GPU Pulse Dashboard (AD104)</sub>
-      </td>
-    </tr>
-  </table>
-</div>
+# Check the counter sets exposed by a CUDA device
+python observer.py --device 0 --probe
 
-> Measured GPU throughput & hardware timeline
-<div align="left">
-  <table>
-    <tr>
-      <td align="left" width="50%">
-        <img width="100%" alt="image" src="https://github.com/user-attachments/assets/8ab2ff38-c9ab-45df-ad3d-d163040e254e" />
-        <img width="100%" alt="image" src="https://github.com/user-attachments/assets/4380c353-6abe-471b-9a92-fb83a2554fe3" />
-        <sub>NVIDIA L4 GPU Pulse Dashboard (AD104)</sub>
-      </td>
-    </tr>
-  </table>
-</div>
+# Multi-GPU Node Summary at http://127.0.0.1:8766/
+python node_agent.py --output-dir ./samples
 
-*Captured on an NVIDIA L4 (AD104) with CUPTI Python 13.5.0. The screenshots show a real test run, not synthetic dashboard data.*
+# Or open standalone GPU Detail at http://127.0.0.1:8765/
+python observer.py --device 0 --web --output gpu0.jsonl
+```
 
-## What GPU Pulse measures
+Both collectors run passively. The node agent starts a worker per eligible GPU and writes each worker’s sample stream and stderr log to the output directory. See the [operator guide](main/README.md) for requirements, routes, and remote access.
 
-| Metric | Source | Interpretation |
-| --- | --- | --- |
-| FP16 GEMM throughput | CUDA Events + known GEMM operations | Effective workload TFLOP/s during active GEMM execution |
-| FP32 GEMM throughput | CUDA Events + known GEMM operations | Effective workload TFLOP/s during active GEMM execution |
-| DRAM read/write | CUPTI PM Sampling | Hardware counter-derived throughput, GB/s |
-| L1/L2 cache hit | CUPTI PM Sampling | Cache hit metrics, subject to metric-specific semantics |
-| GR/SM elapsed cycles | CUPTI PM Sampling | Raw cycle counter measurements |
-| FP32 hardware FLOP/s | CUPTI, if compatible counters are available | Not available in the demonstrated L4 configuration |
-| Tensor pipeline activity | CUPTI, if a compatible metric is available | Not available in the demonstrated L4 configuration |
-
-**Effective GEMM TFLOP/s is not equivalent to a GPU-wide hardware FLOP counter.** GEMM throughput is calculated from the work performed by a known benchmark. Counters are reported separately; unavailable hardware metrics appear as **N/A**, not as zeros or estimated values.
-
-## Variable workload demo
-
-The 60-second demonstration runs a changing GPU workload, enabling comparison between compute and memory phases:
-
-| Interval | Workload |
+| View | What it shows |
 | --- | --- |
-| 0–8 s | Idle |
-| 8–20 s | FP16 GEMM, increasing load |
-| 20–32 s | FP32 GEMM, increasing load |
-| 32–42 s | Memory-intensive operations |
-| 42–54 s | Mixed compute and memory |
-| 54–60 s | Idle |
+| Node Summary | Physical GPU inventory, collector status, node DRAM and compute aggregates, and measurement coverage |
+| GPU Detail | Live compute, DRAM and cache charts, measured versus dense peak by precision, temperature, power, clocks, VRAM, and metric provenance |
 
-The dashboard aligns observations on one-second reporting windows. The FP16 and FP32 benchmark operations are scheduled in phases rather than being guaranteed to execute at the exact same instant.
+The registry covers T4, L4, L40S, A100 40/80 GB in PCIe and SXM, H100 SXM, H200 SXM, B200, and B300. A registry match supplies theoretical peaks. Live counter availability depends on the GPU, CUPTI version, and selected single-pass set. The dashboard displays missing values as **N/A** and flags partial node coverage. Node time alignment uses host receipt time.
 
-## Validated environment
+## Colab demo
 
-- **GPU:** NVIDIA L4, AD104 (compute capability 8.9)
-- **CUPTI Python:** 13.5.0
-- **CUPTI C package:** 13.5.25
-- **Available single-pass metric sets:** `TriageSCG`, `TriageAC`
-- **Collected:** GR/SM cycles, DRAM read/write, L1/L2 cache metrics
-- **Observed sample count:** 59 in a ~58-second valid capture
-- **Additional FP32/Tensor counters:** Not compatible with the selected single-pass collection set in this run
+The [Colab notebook](main/notebooks/GPU_Pulse_All_Precisions.ipynb) runs an active variable workload and visualizes timed GEMM throughput alongside hardware counters. Timed GEMM throughput measures benchmark work divided by execution time. CUPTI metrics describe sampled hardware activity.
 
-**L40S, A100, H100/H200 and Blackwell-series support must be verified per GPU and CUPTI version.** Automatic detection is not evidence that every metric is supported on every architecture.
+<img src="https://github.com/user-attachments/assets/61a273a9-c189-4257-a284-b776b586846e" alt="GPU Pulse Colab dashboard captured on NVIDIA L4" width="650">
 
-## Getting started
-
-The current implementation is a Google Colab proof of concept. It requires a supported NVIDIA GPU runtime and a CUPTI installation with working PM Sampling APIs.
-
-1. Open the GPU Pulse Colab notebook.
-2. Select a GPU-enabled runtime.
-3. Run the collection and variable-workload demo.
-4. Inspect the measured FLOP/s and hardware timeline.
-
-> **Status:** Experimental. This project currently demonstrates post-capture visualization, not a continuously streaming production monitoring agent. A standalone collector and CLI are planned.
+The preview is from an NVIDIA L4 capture with CUPTI Python 13.5.0.
 
 ## References
 
-- [NVIDIA CUPTI](https://docs.nvidia.com/cupti/)
+- [NVIDIA CUPTI PM Sampling](https://docs.nvidia.com/cupti/main/main.html#cupti-pm-sampling-api)
 - [CUPTI Python PM Sampling](https://docs.nvidia.com/cupti-python/api-reference/topics/pm_sampling.html)
-- [CUDA Event API](https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__EVENT.html)
-- [Nsight Compute Profiling Guide](https://docs.nvidia.com/nsight-compute/ProfilingGuide/index.html)
+- [NVIDIA System Management Interface](https://docs.nvidia.com/deploy/nvidia-smi/index.html)

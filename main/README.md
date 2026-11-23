@@ -1,13 +1,11 @@
-# GPU Throughput Observatory — CUPTI PM Sampling prototype
+# GPU Pulse operator guide
 
-**Purpose:** Collect hardware-measured TFLOP/s, DRAM GB/s and L1/L2 cache hit rate from the active GPU without converting DCGM utilization percentages into throughput. Ship live data to a built-in read-only local dashboard and NDJSON archive.
-
-**Status:** Source and CPU-side unit tests provided; NOT validated against physical L40S, L4 or A100 in this environment. The first action on your GPU must be `--probe`. A GPU may expose PM Sampling without exposing any FLOP counters compatible with the chosen single pass; the UI displays N/A rather than invented throughput.
+GPU Pulse streams CUPTI measurements to a read-only local dashboard and writes NDJSON samples. Choose the standalone collector for a specific CUDA ordinal or the node agent to discover physical GPUs and run per-GPU workers.
 
 ## Requirements
 
 - Linux x86_64 / aarch64 with supported NVIDIA driver, CUDA Toolkit and CUPTI libraries (`libcupti`, `nvperf*` accessible).
-- CUPTI Python >=13.2; permissions to access NVIDIA GPU performance counters; supported A100/L4/L40S.
+- CUPTI Python >=13.2 and permissions to access NVIDIA GPU performance counters. Node inventory and dashboard health require `nvidia-smi`.
 - A GPU workload may run concurrently, but whether counters reflect other processes is not guaranteed by this code. **Do not interpret measurements as per-Pod, per-process or per-model**.
 - Do not simultaneously run another profiler using the same GPU performance monitors. If DCGM profiling fields conflict, disable those DCGM groups *for the test*, keeping normal DCGM health monitoring.
 
@@ -15,7 +13,7 @@
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# MUST run first on each physical GPU. It lists candidate counters and compatible sets.
+# Inspect candidate counters and compatible sets on the selected device.
 python observer.py --device 0 --probe > gpu0_probe.json
 
 # Run background PM sampling; no synthetic CUDA workload is launched.
@@ -39,6 +37,32 @@ python observer.py --require dram_read,dram_write --web
 ```
 
 **`--require` uses internal metric keys:** `tensor_fp16`, `tensor_bf16`, `tensor_tf32`, `tensor_fp8`, `fadd`, `fmul`, `ffma`, `dram_read`, `dram_write`, `l1_hit`, `l2_hit`.
+
+## Multi-GPU mode
+
+```bash
+python node_agent.py --output-dir ./samples --interval-ms 100 --poll-ms 500
+ssh -L 8766:127.0.0.1:8766 gpu-server
+```
+
+| View or API | Route |
+| --- | --- |
+| Node Summary | `/` or `/summary` on port 8766 |
+| GPU Detail from Node Summary | `/gpu/<uuid>` on port 8766 |
+| Standalone GPU Detail | `/` or `/dashboard.html` on port 8765 |
+| Standalone samples and collector state | `/api/state` |
+| Node aggregate and inventory | `/api/v1/node/summary` and `/api/v1/gpus` |
+| Per-GPU measurements and history | `/api/v1/gpus/<uuid>/metrics` and `/api/v1/gpus/<uuid>/history` |
+
+The agent maps NVML inventory to CUDA ordinals by PCI bus ID. Unmapped and MIG-enabled physical GPUs remain visible in the inventory. Each worker records samples independently. Node aggregation aligns samples on host receipt time and reports partial coverage when measurements are missing. Cache hit rates are available per GPU.
+
+### Peak lookup and memory units
+
+- Hyphenated A100 names such as `NVIDIA A100-SXM4-40GB` and `NVIDIA A100-PCIE-80GB` resolve to their specific form factors. A bare A100 label leaves the form factor unresolved.
+- Driver names `NVIDIA H100 80GB HBM3` and `NVIDIA H200` resolve to SXM references. H100 PCIe and H100/H200 NVL remain outside the current registry.
+- The matcher accepts reported **total memory in MiB**, with per-SKU ranges for L40S and B300. Example totals include L40S at 46,068 MiB and B300 at 275,040 MiB. In Linux GPU Burn’s initialization line, the first memory number is total memory in MiB. The parenthesized numbers describe available memory and test allocation.
+
+Driver names and peak references come from the [NVIDIA driver product list](https://download.nvidia.com/solaris/580.142/README/supportedchips.html) and [A100 datasheet](https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf). Example totals and units come from the [Cisco L40S reference deployment](https://www.cisco.com/c/en/us/td/docs/unified_computing/ucs/UCS_CVDs/flexpod_rag_nim.pdf), [Oracle B300 quickstart](https://github.com/oracle-quickstart/oci-gpu-quickstarts/blob/main/nvidia/B300/README-B300.md), and [GPU Burn source](https://github.com/wilicc/gpu-burn/blob/master/gpu_burn-drv.cpp).
 
 ## Expected output
 
@@ -65,7 +89,7 @@ The UI shows N/A for unavailable values. The `--probe` output establishes candid
 
 ```bash
 python -m unittest discover -s tests -v
-python -m py_compile observer.py metrics.py webui.py
+python -m py_compile *.py
 ```
 
 ## Official NVIDIA references

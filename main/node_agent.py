@@ -23,7 +23,8 @@ from urllib.parse import unquote, urlsplit
 
 from gpu_discovery import discover_gpus, discover_mig_mode, read_gpu_health
 from node_aggregator import node_summary, compute_summary
-from peak_registry import match_peak, attain, measured_compute, load_registry
+from peak_registry import match_peak, load_registry
+from webui import PAGE, detail_payload
 
 LOG = logging.getLogger("gpu-pulse-node")
 ROOT = Path(__file__).resolve().parent
@@ -157,27 +158,11 @@ class NodeSupervisor:
     def detail(self, uuid):
         gpu = self.by_uuid[uuid]
         latest, history = self.snapshot()
-        match = self.peak_matches[uuid]
-        spec = match.get("spec") or {}
-        sample = latest.get(uuid, {})
-        measured = sample.get("precision_metrics", {})
-        compute = measured_compute(measured, spec)
-        # Include not-yet-measured precision types without inventing values.
-        for key, reference in spec.get("compute_peaks", {}).items():
-            compute.setdefault(key, {"measured": None, "peak": reference["value"],
-                                    "unit": reference["unit"], "attainment_pct": None})
-        for rec in compute.values():
-            if rec.get("measured") is not None and rec.get("attainment_pct") is not None:
-                rec["comparison_note"] = "Dense theoretical reference; runtime sparsity not independently verified"
-        return {"gpu": gpu, "collector": self.worker_status().get(uuid),
-                "health": self.health_snapshot().get(uuid, {}),
-                "peak_status": match["status"], "sku": match.get("sku"),
-                "peak_source": spec.get("source"),
-                "memory_bandwidth_peak_gbps": spec.get("memory_bandwidth_gbps"),
-                "compute": compute, "measurements": sample.get("measurements", {}),
-                "raw_metrics": sample.get("raw_metrics", {}),
-                "last_host_received_ns": sample.get("host_received_ns"),
-                "history_count": len(history.get(uuid, []))}
+        return detail_payload(
+            gpu, self.peak_matches[uuid], latest.get(uuid, {}),
+            self.worker_status().get(uuid), self.health_snapshot().get(uuid, {}),
+            len(history[uuid]),
+        )
 
     def history_for(self, uuid):
         _, history = self.snapshot()
@@ -258,7 +243,7 @@ def create_server(supervisor, host="127.0.0.1", port=8766):
                 return self._html("node_dashboard.html")
             if path.startswith("/gpu/"):
                 uuid = unquote(path[len("/gpu/"):])
-                return self._html("gpu_detail.html") if uuid in supervisor.by_uuid else self._json({"error": "not found"}, 404)
+                return self._html(PAGE.name) if uuid in supervisor.by_uuid else self._json({"error": "not found"}, 404)
             if path == "/api/v1/node":
                 return self._json({"gpu_count": len(supervisor.inventory), "source": "nvidia-smi/CUDA"})
             if path == "/api/v1/node/summary":
