@@ -125,9 +125,13 @@ class NodeSupervisor:
 
     def health_snapshot(self):
         with self.lock:
-            if time.monotonic() - self._health_at >= 2:
-                self._health_data = read_gpu_health()
-                self._health_at = time.monotonic()
+            if time.monotonic() - self._health_at < 2:
+                return dict(self._health_data)
+        # Do not hold the sample ring-buffer lock during a subprocess call.
+        health = read_gpu_health()
+        with self.lock:
+            self._health_data = health
+            self._health_at = time.monotonic()
             return dict(self._health_data)
 
     def summary(self):
