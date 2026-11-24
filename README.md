@@ -35,6 +35,10 @@ From the repository root, use `python -m pip install '.[collector]'` on the coll
 
 ## Offline HTML reports
 
+**[Download the interactive dashboard example](https://raw.githubusercontent.com/myeongsu-koo/gpu-pulse/main/examples/gpu-pulse-dashboard.html)**
+
+Save the HTML file and open it in your browser. It uses the same dashboard and exporter as GPU Pulse, with a synthetic NVIDIA H200 capture so you can explore the compute, DRAM, cache, and precision views offline. You can also find the file in the [repository](examples/gpu-pulse-dashboard.html).
+
 Run `python exporter_html.py gpu0.jsonl -o gpu0-report.html` from `main/` and open the resulting HTML locally. Node history JSON is also supported. See the [offline export instructions](main/README.md#generate-an-offline-html-report).
 
 ## Colab demo
