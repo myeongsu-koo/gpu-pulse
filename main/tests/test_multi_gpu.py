@@ -267,6 +267,40 @@ class NodeAgentTests(unittest.TestCase):
 
 
 class StandaloneDashboardTests(unittest.TestCase):
+    def test_benchmark_report_is_displayed_separately_from_live_measurements(self):
+        from urllib.request import urlopen
+        from webui import start_server
+
+        def result(precision, value, family="Matrix", status="MEASURED", unit="TFLOP/s"):
+            return dict(precision=precision, value=value, family=family, status=status, unit=unit)
+
+        state = Mock()
+        sample = {"measurements": {"tensor_tflops": None, "cuda_fp32_tflops": None}}
+        state.snapshot.return_value = {"status": {"state": "running"}, "samples": [sample]}
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "precision_results.json"
+            report.write_text(json.dumps({"gpu": "NVIDIA L4 <test>", "results": [
+                result("FP16", 71.1), result("FP32", 15.58),
+                result("INT8", 999, unit="GOP/s"), result("BF16", 999, status="EXECUTION_FAILED"),
+                result("FP64", 999, family="Vector"), result("FP8", float("inf")),
+            ]}), encoding="utf-8")
+            server = start_server(state, port=0, gpu=gpu("GPU-a"), benchmark_results=report)
+            try:
+                origin = f"http://127.0.0.1:{server.server_port}"
+                with urlopen(origin + "/", timeout=3) as response:
+                    html = response.read().decode()
+                self.assertIn('id="gemm-benchmark"', html)
+                self.assertIn("NVIDIA L4 &lt;test&gt;", html)
+                self.assertIn("<td>FP16</td><td>71.10 TFLOP/s</td>", html)
+                self.assertIn("<td>FP32</td><td>15.58 TFLOP/s</td>", html)
+                self.assertNotIn("999.00 TFLOP/s", html)
+                self.assertNotIn("<td>FP8</td>", html)
+                with urlopen(origin + "/api/detail", timeout=3) as response:
+                    self.assertEqual(json.load(response)["measurements"], sample["measurements"])
+            finally:
+                server.shutdown()
+                server.server_close()
+
     def test_shared_page_and_legacy_state(self):
         import urllib.request
         from webui import PAGE, start_server

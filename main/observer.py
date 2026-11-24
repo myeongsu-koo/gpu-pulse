@@ -230,7 +230,8 @@ def run(args) -> int:
                     from .webui import start_server
                 else:
                     from webui import start_server
-                server = start_server(state, host=args.bind, port=args.port, gpu=inventory)
+                server = start_server(state, host=args.bind, port=args.port, gpu=inventory,
+                                      benchmark_results=args.benchmark_results)
                 LOG.info("Dashboard: http://%s:%d/", args.bind, args.port)
             if args.output == "-":
                 file = sys.stdout
@@ -318,10 +319,14 @@ def main(argv=None) -> int:
     p.add_argument("--output", default="", help="Opt-in append-only NDJSON path; - streams to stdout")
     p.add_argument("--history-seconds", type=int, default=HISTORY_SECONDS)
     p.add_argument("--web", action="store_true", help="Serve live dashboard (127.0.0.1 only by default)")
+    p.add_argument("--benchmark-results", type=Path, metavar="JSON",
+                   help="Show measured GEMM rates from a GPU Pulse benchmark report")
     p.add_argument("--bind", choices=["127.0.0.1"], default="127.0.0.1",
                    help="Compatibility option. Dashboard accepts IPv4 loopback only.")
     p.add_argument("--port", type=int, default=8765)
     args = p.parse_args(argv)
+    if args.benchmark_results is not None and not args.web:
+        p.error("--benchmark-results requires --web")
     if min(args.interval_ms, args.sysclk_cycles, args.poll_ms, args.max_samples, args.hardware_buffer_mb, args.history_seconds) <= 0:
         p.error("sampling interval, poll interval, max samples, hardware buffer must all be positive")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stderr)

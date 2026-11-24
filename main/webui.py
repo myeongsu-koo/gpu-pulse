@@ -1,5 +1,6 @@
 """Shared GPU Detail payload and standalone read-only HTTP server."""
 from __future__ import annotations
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -8,12 +9,12 @@ import threading
 import time
 
 if __package__:
-    from .sample_schema import MAX_SAMPLE_AGE_S, sample_age_seconds
+    from .sample_schema import MAX_SAMPLE_AGE_S, nonnegative_number, sample_age_seconds
     from .sample_history import chart_samples
     from .gpu_discovery import discover_gpus
     from .peak_registry import match_peak, measured_compute, memory_peak
 else:
-    from sample_schema import MAX_SAMPLE_AGE_S, sample_age_seconds
+    from sample_schema import MAX_SAMPLE_AGE_S, nonnegative_number, sample_age_seconds
     from sample_history import chart_samples
     from gpu_discovery import discover_gpus
     from peak_registry import match_peak, measured_compute, memory_peak
@@ -47,8 +48,35 @@ def require_loopback(host):
         raise ValueError("Dashboard binds to 127.0.0.1 only. Use SSH forwarding for remote access.")
 
 
-def start_server(state, host: str = "127.0.0.1", port: int = 8765, *, gpu=None):
+def benchmark_section(path: Path) -> str:
+    report = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(report, dict) or not isinstance(report.get("results"), list):
+        raise ValueError(f"{path}: expected a GPU Pulse benchmark report with a results array")
+    rows = []
+    for result in report["results"]:
+        if not isinstance(result, dict) or (
+            result.get("family"), result.get("status"), result.get("unit")
+        ) != ("Matrix", "MEASURED", "TFLOP/s"):
+            continue
+        precision = result.get("precision")
+        rate = nonnegative_number(result.get("value"))
+        if isinstance(precision, str) and rate is not None:
+            rows.append(f"<tr><td>{escape(precision)}</td><td>{rate:,.2f} TFLOP/s</td></tr>")
+    gpu = report.get("gpu")
+    label = escape(gpu) if isinstance(gpu, str) and gpu else "Unknown GPU"
+    table = ("<table><thead><tr><th>Precision</th><th>Measured</th></tr></thead><tbody>"
+             + "".join(rows) + "</tbody></table>") if rows else "<p>No measured GEMM rates in this report.</p>"
+    return (
+        '<section id="gemm-benchmark"><h2>GEMM Benchmark</h2>'
+        f'<p class="muted">Benchmark GPU · {label}. Throughput uses known GEMM work and CUDA-event timing.</p>'
+        f"{table}</section>"
+    )
+
+
+def start_server(state, host: str = "127.0.0.1", port: int = 8765, *, gpu=None,
+                 benchmark_results: Path | None = None):
     require_loopback(host)
+    benchmark_html = benchmark_section(benchmark_results).encode() if benchmark_results is not None else b""
     device = state.snapshot()["status"].get("device")
     if gpu is None:
         try:
@@ -76,6 +104,8 @@ def start_server(state, host: str = "127.0.0.1", port: int = 8765, *, gpu=None):
                 content_type = "application/json; charset=utf-8"
             elif path in ("/", "/dashboard.html"):
                 payload = PAGE.read_bytes()
+                if benchmark_html:
+                    payload = payload.replace(b"<!-- gemm-benchmark -->", benchmark_html, 1)
                 content_type = "text/html; charset=utf-8"
             else:
                 self.send_error(404)
