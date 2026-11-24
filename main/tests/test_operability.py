@@ -138,3 +138,21 @@ class CollectorTests(unittest.TestCase):
                 agent.start()
             self.assertEqual(log.with_suffix(".log.1").read_text(encoding="utf-8"), "first failure")
             agent.shutdown()
+
+
+    def test_structured_cupti_result_overrides_exception_text(self):
+        from collector_config import profiler_busy
+
+        class CuptiError(Exception):
+            def __init__(self, status, message):
+                super().__init__(message)
+                self.status = status
+
+        binding = SimpleNamespace(cuptiError=CuptiError, Result=SimpleNamespace(ERROR_HARDWARE_BUSY=26))
+        with patch.dict(sys.modules, {"cupti": SimpleNamespace(cupti=binding)}):
+            self.assertTrue(profiler_busy(CuptiError(26, "opaque failure")))
+            self.assertFalse(profiler_busy(CuptiError(1, "ERROR_HARDWARE_BUSY")))
+            outer = RuntimeError("wrapper")
+            outer.__cause__ = CuptiError(26, "opaque failure")
+            self.assertTrue(profiler_busy(outer))
+        self.assertTrue(profiler_busy(RuntimeError("ERROR_HARDWARE_BUSY (26)")))

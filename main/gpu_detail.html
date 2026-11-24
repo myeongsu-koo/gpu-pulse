@@ -96,7 +96,11 @@ function createCards(group, fields) {
 const computeCards = createCards('compute-cards', compute);
 const memoryCards = createCards('memory-cards', [...dram, ...cache, ['peak', 'DRAM Bandwidth Peak', 'GB/s'], ['memory_mib', 'Total VRAM', 'MiB']]);
 function updateCards(cards, values) {
-  for (const [key, element, unit] of cards) element.textContent = format(values[key], unit);
+  for (const [key, element, unit] of cards) {
+    const value = values[key];
+    const shownUnit = key === 'tensor_tflops' ? unit + ' (provisional)' : unit;
+    element.textContent = format(value, shownUnit);
+  }
 }
 
 function createChart(group, title, lines, fixedMax) {
@@ -118,7 +122,7 @@ function createChart(group, title, lines, fixedMax) {
   return {canvas, lines, fixedMax};
 }
 const charts = [
-  createChart('compute-charts', 'Recent compute · TFLOP/s', compute),
+  createChart('compute-charts', 'Recent compute · TFLOP/s · Tensor conversion provisional', compute),
   createChart('memory-charts', 'Recent DRAM · GB/s', dram),
   createChart('memory-charts', 'Recent cache hit rate · %', cache, 100)
 ];
