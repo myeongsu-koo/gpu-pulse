@@ -19,11 +19,13 @@ import time
 from pathlib import Path
 
 if __package__:
+    from .sample_schema import nonnegative_number
     from .collector_config import DEFAULT_INTERVAL_MS, PROFILER_BUSY_EXIT, profiler_busy
     from .gpu_discovery import discover_gpus
     from .sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory
     from .metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, select_for_set, to_dashboard_values, precision_dashboard_values
 else:
+    from sample_schema import nonnegative_number
     from collector_config import DEFAULT_INTERVAL_MS, PROFILER_BUSY_EXIT, profiler_busy
     from gpu_discovery import discover_gpus
     from sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory
@@ -150,7 +152,7 @@ class State:
 
 
 def emit_sample(sample, names: list[str], selected, chip: str, device: int) -> dict:
-    raw = dict(zip(names, sample.metric_values))
+    raw = {name: nonnegative_number(value) for name, value in zip(names, sample.metric_values, strict=True)}
     ts_start, ts_end = int(sample.start_timestamp), int(sample.end_timestamp)
     return {
         "chip": chip,

@@ -7,10 +7,12 @@ import json
 from pathlib import Path
 
 if __package__:
+    from .sample_schema import decode_json, validate_sample
     from .sample_history import chart_samples
     from .peak_registry import match_peak
     from .webui import PAGE, detail_payload
 else:
+    from sample_schema import decode_json, validate_sample
     from sample_history import chart_samples
     from peak_registry import match_peak
     from webui import PAGE, detail_payload
@@ -21,7 +23,7 @@ DATA_TAG = '<script type="application/json" id="report-data">'
 def read_capture(path):
     with path.open(encoding="utf-8-sig") as stream:
         try:
-            capture = json.load(stream)
+            capture = decode_json(stream.read())
         except json.JSONDecodeError:
             stream.seek(0)
             capture = []
@@ -29,7 +31,7 @@ def read_capture(path):
                 if not line.strip():
                     continue
                 try:
-                    capture.append(json.loads(line))
+                    capture.append(decode_json(line))
                 except json.JSONDecodeError as error:
                     raise ValueError(f"Invalid NDJSON on line {number}: {error.msg}") from error
 
@@ -44,10 +46,10 @@ def read_capture(path):
 
 def render_report(capture, model=None, memory_mib=None, compact=False):
     samples = capture["samples"]
-    if not isinstance(samples, list) or not all(
-        isinstance(row, dict) and isinstance(row.get("measurements"), dict) for row in samples
-    ):
-        raise ValueError("Expected observer samples with a measurements object")
+    if not isinstance(samples, list):
+        raise ValueError("Expected a samples array")
+    for row in samples:
+        validate_sample(row)
     devices = {row["device"] for row in samples if isinstance(row.get("device"), int)}
     if len(devices) > 1:
         raise ValueError("Export samples for one CUDA device at a time")

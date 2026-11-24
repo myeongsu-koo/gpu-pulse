@@ -125,10 +125,10 @@ class AggregatorTests(unittest.TestCase):
         self.latest = {
             "GPU-a": {"host_received_ns": self.now - 100_000_000,
                       "measurements": {"dram_read_gbps": 12.0, "dram_write_gbps": 3.0},
-                      "precision_metrics": {"fp16.tensor.dense": {"value": 48.0, "unit": "TFLOP/s"}}},
+                      "precision_metrics": {"fp16.tensor.dense": {"value": 48.0, "unit": "TFLOP/s", "counter_unit_verified": True}}},
             "GPU-b": {"host_received_ns": self.now - 200_000_000,
                       "measurements": {"dram_read_gbps": 10.0, "dram_write_gbps": 5.0},
-                      "precision_metrics": {"fp16.tensor.dense": {"value": 60.0, "unit": "TFLOP/s"}}},
+                      "precision_metrics": {"fp16.tensor.dense": {"value": 60.0, "unit": "TFLOP/s", "counter_unit_verified": True}}},
         }
 
     def test_complete_two_gpu_memory(self):
@@ -158,6 +158,16 @@ class AggregatorTests(unittest.TestCase):
         self.assertEqual(result["status"], "COMPLETE")
         self.assertEqual(result["measured"], 108.0)
         self.assertEqual(result["peak"], 242.0)
+
+    def test_unverified_and_incompatible_tensor_units_are_excluded(self):
+        a = self.latest["GPU-a"]["precision_metrics"]["fp16.tensor.dense"]
+        b = self.latest["GPU-b"]["precision_metrics"]["fp16.tensor.dense"]
+        a.pop("counter_unit_verified")
+        b["unit"] = "TOP/s"
+        result = compute_summary(self.devices, self.latest, self.peak,
+                                 "fp16.tensor.dense", now_ns=self.now)
+        self.assertEqual(result["counted_gpus"], 0)
+        self.assertIsNone(result["attainment_pct"])
 
     def test_cache_hit_not_averaged(self):
         for rec in self.latest.values():
@@ -262,7 +272,7 @@ class StandaloneDashboardTests(unittest.TestCase):
         from webui import PAGE, start_server
 
         sample = {"measurements": {"dram_read_gbps": 12},
-                  "precision_metrics": {"fp16.tensor.dense": {"value": 60.5, "unit": "TFLOP/s"}}}
+                  "precision_metrics": {"fp16.tensor.dense": {"value": 60.5, "unit": "TFLOP/s", "counter_unit_verified": True}}}
         snapshot = {"status": {"device": 1, "state": "running"}, "samples": [sample]}
         with (patch("webui.discover_gpus", return_value=[gpu("GPU-b", cuda=1)]) as inventory,
               patch("subprocess.run", side_effect=AssertionError("External command called")),

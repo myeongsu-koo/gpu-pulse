@@ -156,3 +156,40 @@ class CollectorTests(unittest.TestCase):
             outer.__cause__ = CuptiError(26, "opaque failure")
             self.assertTrue(profiler_busy(outer))
         self.assertTrue(profiler_busy(RuntimeError("ERROR_HARDWARE_BUSY (26)")))
+
+
+    def test_invalid_cupti_numbers_are_json_null(self):
+        from observer import emit_sample
+        from metrics import KEY_TO_SPEC
+
+        spec = KEY_TO_SPEC["dram_read"]
+        sample = SimpleNamespace(start_timestamp=1, end_timestamp=2, metric_values=[float("nan")])
+        record = emit_sample(sample, [spec.name], [spec], "AD104", 0)
+        self.assertIsNone(record["raw_metrics"][spec.name])
+        self.assertIsNone(record["measurements"]["dram_read_gbps"])
+        json.dumps(record, allow_nan=False)
+
+    def test_stale_live_detail_retains_reference_and_omits_old_reading(self):
+        from webui import detail_payload
+
+        card = gpu("a")
+        record = {"host_received_ns": SECOND_NS, "measurements": {"dram_read_gbps": 10}}
+        match = match_peak(card)
+        live = detail_payload(card, match, record, None, 1, now_ns=7 * SECOND_NS)
+        offline = detail_payload(card, match, record, None, 1)
+        self.assertTrue(live["sample_stale"])
+        self.assertEqual(live["measurements"], {})
+        self.assertEqual(live["sku"], offline["sku"])
+        self.assertEqual(offline["measurements"]["dram_read_gbps"], 10)
+
+    def test_worker_rejects_malformed_samples_without_losing_stream(self):
+        with tempfile.TemporaryDirectory() as directory:
+            agent = NodeSupervisor([gpu("a")], output_dir=directory)
+            valid = '{"device":0,"measurements":{"dram_read_gbps":7}}'
+            pipe = io.StringIO('{"device":0,"measurements":[]}\n'
+                               '{"device":0,"measurements":{"dram_read_gbps":1e999}}\n'
+                               + valid + '\n')
+            with self.assertLogs("gpu-pulse-node", level="WARNING") as captured:
+                agent._reader("a", pipe)
+            self.assertEqual(len(captured.records), 2)
+            self.assertEqual(agent.latest["a"]["measurements"]["dram_read_gbps"], 7)
