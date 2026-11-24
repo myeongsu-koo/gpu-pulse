@@ -39,6 +39,9 @@ def validate_sample(sample):
     """Check the sample envelope while allowing older captures and extra metrics."""
     if not isinstance(sample, dict) or not isinstance(sample.get("measurements"), dict):
         raise ValueError("Expected observer sample with a measurements object")
+    if "selected_keys" in sample and (not isinstance(sample["selected_keys"], list) or
+                                      not all(isinstance(k, str) for k in sample["selected_keys"])):
+        raise ValueError("Expected selected_keys to be an array of counter names")
     for key in ("precision_metrics", "raw_metrics", "gpu"):
         if key in sample and not isinstance(sample[key], dict):
             raise ValueError(f"Expected sample {key} to be an object")

@@ -122,7 +122,7 @@ File output is off by default. When you pass `--output gpu0.jsonl` to the standa
 {"gpu_start_ns": 1, "gpu_end_ns": 2, "measurements": {"tensor_tflops": null, "cuda_fp32_tflops": null, "dram_read_gbps": null, "dram_write_gbps": null, "l1_hit_pct": null, "l2_hit_pct": null}}
 ```
 
-The UI shows N/A for unavailable values. The `--probe` output establishes candidate *base metric presence*. Actual metric sub-metrics and hardware scheduling are validated by `Collector.configure()`. If configuration fails for a combination, use a different set/metric combination on that GPU; never silently switch to activity-based estimates.
+The probe reports named-set base presence. Runtime configuration and decoded samples determine availability. See Runtime metric selection below for fallback order and dashboard labels.
 
 ## Metric provenance and limits
 
@@ -149,3 +149,19 @@ python -m py_compile *.py
 - [CUPTI Python ProfilerHost metric-set query API](https://docs.nvidia.com/cupti-python/api-reference/topics/profiler_host.html)
 - [CUPTI Python tutorial](https://docs.nvidia.com/cupti-python/tutorials/tutorials.html)
 - [NVIDIA developer-tools permission requirement](https://developer.nvidia.com/ERR_NVGPUCTRPERM)
+
+## Runtime metric selection
+
+The default observer tries its preferred named single-pass plan first. If configuration rejects the metrics, it tries bounded direct CUPTI configurations. To prioritize FLOP/s on a validation node, run `python observer.py --web --prefer-compute` or pass `--prefer-compute` to the node agent. Direct plans try dense FP16 Tensor operations and scalar FP32 instructions together and separately, with DRAM byte rates, sector counts, or compute alone. A forced named set stays pinned. Required keys are mandatory. No workload or replay is launched. Discovery in `--probe` describes named sets only.
+
+Raw operation sums use each decoded GPU window's duration; rate counters are already time-normalized. FP32 counts ADD + MUL + 2 × FMA. Dense FP16 operation sums use one FLOP per reported operation and remain provisional for PM sampling until calibrated on the target. A successful configuration still requires valid decoded samples. A benchmark report has a separate display and never fills a missing live reading.
+
+| GPU Detail field state | Display |
+|---|---|
+| Finite measurement, including zero | Numeric value and unit |
+| Counter absent from the selected plan | Outside selected counter set |
+| Selected counter lacks a usable reading, or old capture lacks provenance | No valid reading |
+| Sample expired | Stale sample |
+| No samples yet | Collector status or Waiting for samples |
+
+History preserves gaps. Peak and attainment fields remain N/A when the reference or unit calibration is missing. Node coverage describes the subset included in each aggregate.

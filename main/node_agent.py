@@ -162,7 +162,7 @@ class NodeSupervisor:
                 key for g in self.inventory
                 for key in (self.peak_matches.get(g["uuid"], {}).get("spec") or {})
                     .get("compute_peaks", {})
-            })
+            } | {key for sample in latest.values() for key in sample.get("precision_metrics", {})})
         }
         return payload
 
@@ -300,6 +300,7 @@ def main(argv=None):
     parser.add_argument("--history", type=int, default=HISTORY_CAP, help="Hard sample cap per GPU")
     parser.add_argument("--history-seconds", type=int, default=HISTORY_SECONDS)
     parser.add_argument("--interval-ms", type=int, default=DEFAULT_INTERVAL_MS)
+    parser.add_argument("--prefer-compute", action="store_true", help="Prefer direct compute counters on each GPU")
     parser.add_argument("--poll-ms", type=int, default=500)
     args = parser.parse_args(argv)
     if min(args.history, args.history_seconds) <= 0 or args.interval_ms <= 0 or args.poll_ms <= 0:
@@ -316,7 +317,7 @@ def main(argv=None):
     supervisor = NodeSupervisor(
         inventory, output_dir=args.output_dir, max_history=args.history, history_seconds=args.history_seconds,
         worker_options=["--interval-ms", str(args.interval_ms),
-                        "--poll-ms", str(args.poll_ms)])
+                        "--poll-ms", str(args.poll_ms)] + (["--prefer-compute"] if args.prefer_compute else []))
     server = None
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
