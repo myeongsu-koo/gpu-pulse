@@ -19,9 +19,13 @@ import time
 from pathlib import Path
 
 if __package__:
+    from .collector_config import DEFAULT_INTERVAL_MS, PROFILER_BUSY_EXIT, profiler_busy
+    from .gpu_discovery import discover_gpus
     from .sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory
     from .metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, select_for_set, to_dashboard_values, precision_dashboard_values
 else:
+    from collector_config import DEFAULT_INTERVAL_MS, PROFILER_BUSY_EXIT, profiler_busy
+    from gpu_discovery import discover_gpus
     from sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory
     from metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, select_for_set, to_dashboard_values, precision_dashboard_values
 
@@ -182,6 +186,12 @@ def run(args) -> int:
         if args.probe:
             print(json.dumps(capability_report(chip), indent=2, ensure_ascii=False))
             return 0
+        inventory = {}
+        if args.web or (args.output and not getattr(args, "worker_stream", False)):
+            try:
+                inventory = next((gpu for gpu in discover_gpus() if gpu["cuda_index"] == args.device), {})
+            except (OSError, AttributeError, RuntimeError) as exc:
+                LOG.warning("CUDA inventory unavailable: %s", exc)
         requested = [r.strip() for r in args.require.split(",") if r.strip()]
         unknown = set(requested) - set(KEY_TO_SPEC)
         if unknown:
@@ -216,7 +226,7 @@ def run(args) -> int:
                     from .webui import start_server
                 else:
                     from webui import start_server
-                server = start_server(state, host=args.bind, port=args.port)
+                server = start_server(state, host=args.bind, port=args.port, gpu=inventory)
                 LOG.info("Dashboard: http://%s:%d/", args.bind, args.port)
             if args.output == "-":
                 file = sys.stdout
@@ -238,6 +248,8 @@ def run(args) -> int:
                         continue
                     prev_end = sample.end_timestamp
                     record = emit_sample(sample, batch.metrics, specs, chip, args.device)
+                    if inventory:
+                        record["gpu"] = inventory
                     added += 1
                     if args.web:
                         state.push(record)
@@ -288,16 +300,18 @@ def main(argv=None) -> int:
     p.add_argument("--probe", action="store_true", help="Only report metric capabilities/single-pass coverage")
     p.add_argument("--metric-set", help="Force a named CUPTI single-pass metric set")
     p.add_argument("--require", default="", help="Comma-separated internal keys required in selected single-pass set")
-    p.add_argument("--interval-ms", type=int, default=10, help="L40S/L4 GPU time interval (milliseconds)")
+    p.add_argument("--interval-ms", type=int, default=DEFAULT_INTERVAL_MS, help="GPU time interval in milliseconds (except SYSCLK sampling)")
     p.add_argument("--sysclk-cycles", type=int, default=10_000_000, help="A100/GA100 interval in SYSCLK cycles")
     p.add_argument("--poll-ms", type=int, default=500, help="Host decoding/publishing interval")
     p.add_argument("--max-samples", type=int, default=4096, help="Maximum samples processed per decode() call")
     p.add_argument("--hardware-buffer-mb", type=int, default=128, help="PM hardware buffer allocation in MiB")
     p.add_argument("--duration", type=float, default=0, help="Run seconds, 0 means until Ctrl+C")
+    p.add_argument("--worker-stream", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--output", default="", help="Opt-in append-only NDJSON path; - streams to stdout")
     p.add_argument("--history-seconds", type=int, default=HISTORY_SECONDS)
     p.add_argument("--web", action="store_true", help="Serve live dashboard (127.0.0.1 only by default)")
-    p.add_argument("--bind", default="127.0.0.1", help="Bind IP for web dashboard")
+    p.add_argument("--bind", choices=["127.0.0.1"], default="127.0.0.1",
+                   help="Compatibility option. Dashboard accepts IPv4 loopback only.")
     p.add_argument("--port", type=int, default=8765)
     args = p.parse_args(argv)
     if min(args.interval_ms, args.sysclk_cycles, args.poll_ms, args.max_samples, args.hardware_buffer_mb, args.history_seconds) <= 0:
@@ -306,6 +320,9 @@ def main(argv=None) -> int:
     try:
         return run(args)
     except Exception as e:
+        if profiler_busy(e):
+            LOG.error("Another profiler is using the GPU performance counters: %s", e)
+            return PROFILER_BUSY_EXIT
         LOG.error("Collector failed: %s", e)
         LOG.error("Check GPU privilege, CUPTI version, metric-set availability, and DCGM profiling conflicts")
         return 1

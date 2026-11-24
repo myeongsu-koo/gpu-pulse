@@ -7,9 +7,11 @@ import json
 from pathlib import Path
 
 if __package__:
+    from .sample_history import chart_samples
     from .peak_registry import match_peak
     from .webui import PAGE, detail_payload
 else:
+    from sample_history import chart_samples
     from peak_registry import match_peak
     from webui import PAGE, detail_payload
 
@@ -40,7 +42,7 @@ def read_capture(path):
     raise ValueError("Expected GPU Pulse samples or a capture with a samples array")
 
 
-def render_report(capture, model=None, memory_mib=None):
+def render_report(capture, model=None, memory_mib=None, compact=False):
     samples = capture["samples"]
     if not isinstance(samples, list) or not all(
         isinstance(row, dict) and isinstance(row.get("measurements"), dict) for row in samples
@@ -51,7 +53,11 @@ def render_report(capture, model=None, memory_mib=None):
         raise ValueError("Export samples for one CUDA device at a time")
 
     latest = samples[-1] if samples else {}
-    gpu = dict(capture.get("gpu") or {})
+    inventories = [row["gpu"] for row in samples if isinstance(row.get("gpu"), dict)]
+    uuids = {gpu["uuid"] for gpu in inventories if gpu.get("uuid")}
+    if len(uuids) > 1:
+        raise ValueError("Export samples for one GPU UUID at a time")
+    gpu = dict(capture.get("gpu") or (inventories[-1] if inventories else {}))
     if model:
         gpu["model"] = model
     if memory_mib is not None:
@@ -61,7 +67,13 @@ def render_report(capture, model=None, memory_mib=None):
     collector["status"] = "OFFLINE REPORT"
     collector.setdefault("chip", latest.get("chip"))
     data = detail_payload(gpu, match_peak(gpu), latest, collector, len(samples))
-    data["samples"] = samples
+    if compact:
+        # Legacy captures may carry only device timestamps.
+        points = [{**row, "host_received_ns": row.get("host_received_ns", row.get("gpu_end_ns"))}
+                  for row in samples]
+        data["samples"] = chart_samples(points)
+    else:
+        data["samples"] = samples
     # Escape HTML delimiters before inserting untrusted capture text into a script element.
     payload = json.dumps(data, allow_nan=False).replace("<", r"\u003c")
     return PAGE.read_text(encoding="utf-8").replace(DATA_TAG, DATA_TAG + payload, 1)
@@ -73,13 +85,14 @@ def main(argv=None):
     parser.add_argument("-o", "--output", type=Path, default=Path("gpu_pulse_report.html"))
     parser.add_argument("--model", help="GPU model when the capture has no inventory metadata")
     parser.add_argument("--memory-mib", type=int, help="Total GPU memory in MiB")
+    parser.add_argument("--compact", action="store_true", help="Embed half-second chart averages instead of raw samples")
     args = parser.parse_args(argv)
     try:
         if args.input_path.resolve() == args.output.resolve():
             raise ValueError("Choose a different output path from the capture")
         if args.memory_mib is not None and args.memory_mib <= 0:
             raise ValueError("Total GPU memory must be positive")
-        report = render_report(read_capture(args.input_path), args.model, args.memory_mib)
+        report = render_report(read_capture(args.input_path), args.model, args.memory_mib, args.compact)
         args.output.write_text(report, encoding="utf-8")
     except (OSError, ValueError, TypeError) as error:
         parser.exit(1, f"{parser.prog}: {error}\n")

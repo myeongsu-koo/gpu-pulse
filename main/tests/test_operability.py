@@ -67,12 +67,15 @@ class CollectorTests(unittest.TestCase):
         with (patch.dict(sys.modules, {"cupti": SimpleNamespace(pm_sampling=module)}),
               patch("observer.threading.Event", return_value=stop), patch("observer.signal.signal"),
               patch("observer.CudaPrimaryContext", return_value=contextlib.nullcontext()),
+              patch("observer.discover_gpus", return_value=[gpu("GPU-test")]),
               patch("observer.get_chip_name", return_value="AD104"),
               patch("observer.select_plan", return_value=("test", [])),
               contextlib.redirect_stdout(out)):
             self.assertEqual(run(args), 0)
         self.assertEqual(collector.decode.call_count, 3)
-        self.assertEqual([json.loads(line)["gpu_end_ns"] for line in out.getvalue().splitlines()], [2, 3])
+        rows = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual([row["gpu_end_ns"] for row in rows], [2, 3])
+        self.assertEqual(rows[-1]["gpu"]["uuid"], "GPU-test")
 
     def test_restarts_failures_after_backoff_only(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -101,3 +104,37 @@ class CollectorTests(unittest.TestCase):
         card = gpu("t4")
         info = detail_payload(card, match_peak(card), {}, None, 0)
         self.assertIsNone(info["memory_bandwidth_peak_gbps"])
+
+    def test_profiler_conflict_has_distinct_status_and_slow_retry(self):
+        from collector_config import PROFILER_BUSY_EXIT
+        from observer import main
+
+        with patch("observer.run", side_effect=RuntimeError("CUPTI_ERROR_HARDWARE_BUSY")):
+            self.assertEqual(main([]), PROFILER_BUSY_EXIT)
+        with tempfile.TemporaryDirectory() as directory:
+            agent = NodeSupervisor([gpu("a")], output_dir=directory)
+            agent.workers["a"] = {
+                "status": "STARTING", "process": Mock(poll=Mock(return_value=PROFILER_BUSY_EXIT)),
+                "thread": Mock(is_alive=Mock(return_value=False)), "delay": 2, "started_at": 100,
+            }
+            with patch("node_agent.time.monotonic", return_value=102):
+                agent.restart_failed()
+                status = agent.worker_status()["a"]
+            self.assertEqual(status["status"], "PROFILER_BUSY")
+            self.assertEqual(status["retry_in_s"], 30)
+
+    def test_shutdown_cleans_managed_log_directory(self):
+        agent = NodeSupervisor([])
+        self.assertTrue(agent.output_dir.exists())
+        agent.shutdown()
+        self.assertFalse(agent.output_dir.exists())
+
+    def test_retry_preserves_previous_stderr(self):
+        with tempfile.TemporaryDirectory() as directory:
+            agent = NodeSupervisor([gpu("a")], output_dir=directory)
+            log = agent.output_dir / "a.stderr.log"
+            log.write_text("first failure", encoding="utf-8")
+            with patch("node_agent.subprocess.Popen", side_effect=OSError("launch failed")):
+                agent.start()
+            self.assertEqual(log.with_suffix(".log.1").read_text(encoding="utf-8"), "first failure")
+            agent.shutdown()

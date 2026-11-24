@@ -75,6 +75,10 @@ class PeakTests(unittest.TestCase):
         cases = [
             ("NVIDIA H100 80GB HBM3", 81559, "h100-80gb-sxm"),
             ("NVIDIA H200", 143771, "h200-141gb-sxm"),
+            ("NVIDIA H100 PCIe", 81559, "h100-80gb-pcie"),
+            ("NVIDIA H200 NVL", 143771, "h200-141gb-nvl"),
+            ("NVIDIA RTX PRO 6000 Blackwell Server Edition", 92160, "rtx-pro-6000-blackwell-server"),
+            ("NVIDIA RTX PRO 4500 Blackwell Server Edition", 30720, "rtx-pro-4500-blackwell-server"),
             ("NVIDIA A100-SXM4-40GB", 40536, "a100-40gb-sxm"),
             ("NVIDIA-A100-SXM4-80GB", 81920, "a100-80gb-sxm"),
             ("NVIDIA A100-PCIE-40GB", 40536, "a100-40gb-pcie"),
@@ -93,9 +97,7 @@ class PeakTests(unittest.TestCase):
     def test_variant_and_memory_checks_reject_incompatible_matches(self):
         cases = [
             ("NVIDIA H100", 81559),
-            ("NVIDIA H100 PCIe", 81559),
             ("NVIDIA H100 NVL", 95830),
-            ("NVIDIA H200 NVL", 143771),
             ("NVIDIA A100 80GB", 81920),
             ("NVIDIA A100-SXM4-40GB", 81920),
             ("NVIDIA L40S", 24000),
@@ -173,6 +175,11 @@ class PrecisionTests(unittest.TestCase):
         self.assertEqual(result["bf16.tensor.dense"]["value"], 2)
         self.assertEqual(result["fp16.tensor.dense"]["comparison_status"], "DENSE_REFERENCE_UNVERIFIED")
         self.assertNotIn("int8.tensor.dense", result)
+        from peak_registry import measured_compute
+        sku = match_peak(gpu("GPU-a"))["spec"]
+        measured = measured_compute(result, sku)
+        self.assertFalse(measured["fp16.tensor.dense"]["counter_unit_verified"])
+        self.assertIsNone(measured["fp16.tensor.dense"]["attainment_pct"])
 
 
 class NodeAgentTests(unittest.TestCase):
