@@ -57,7 +57,9 @@ TARGETS = ("tensor_tflops", "cuda_fp32_tflops", "dram_read_gbps", "dram_write_gb
 
 
 def base_name(metric: str) -> str:
-    return metric.split(".", 1)[0]
+    parts = metric.split(".")
+    # CUPTI can qualify a base as <domain>.<set>.<unit>__<counter>.
+    return next((part for part in parts if "__" in part), parts[0])
 
 
 def select_for_set(set_metrics: Iterable[str]) -> list[MetricSpec]:

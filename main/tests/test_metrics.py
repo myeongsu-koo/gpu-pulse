@@ -1,8 +1,38 @@
 import unittest
+from unittest.mock import patch
 from metrics import SPECS, choose_set, coverage, to_dashboard_values
+from observer import capability_report
 
 
 class MetricTests(unittest.TestCase):
+    def test_l4_qualified_cupti_metric_sets(self):
+        metrics = {
+            "FBSP": ("dramc__sectors_op_read", "dramc__sectors_op_write"),
+            "SM_B": ("l1tex__t_sector_hit_rate",),
+            "LTS": ("lts__average_t_sector_hit_rate_realtime",),
+        }
+        sets = {
+            name: [f"{domain}.{name}.{metric}"
+                   for domain, bases in metrics.items() for metric in bases]
+            for name in ("TriageAC", "TriageSCG")
+        }
+        expected = [
+            "dramc__sectors_op_read.sum",
+            "dramc__sectors_op_write.sum",
+            "l1tex__t_sector_hit_rate.pct",
+            "lts__average_t_sector_hit_rate_realtime.pct",
+        ]
+        name, specs = choose_set(sets, required=["dram_read_sectors"])
+        self.assertEqual(name, "TriageAC")
+        self.assertEqual([spec.name for spec in specs], expected)
+
+        with patch("observer.discover_sets", return_value=sets):
+            report = capability_report("AD104")
+        self.assertEqual(report["preferred_plan"]["metric_names"], expected)
+        self.assertEqual(report["candidate_availability"]["dram_read_sectors"]["sets_with_base"],
+                         ["TriageAC", "TriageSCG"])
+        self.assertEqual(report["candidate_availability"]["tensor_fp16"]["sets_with_base"], [])
+
     def test_no_fp32_guess_from_partial(self):
         _, specs = choose_set({"a": ["smsp__sass_thread_inst_executed_op_ffma_pred_on"]})
         metrics = {specs[0].name: 1e12}
