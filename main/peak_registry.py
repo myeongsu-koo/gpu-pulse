@@ -4,6 +4,11 @@ import json
 import re
 from pathlib import Path
 
+if __package__:
+    from .sample_schema import nonnegative_number
+else:
+    from sample_schema import nonnegative_number
+
 REGISTRY_PATH = Path(__file__).with_name("peak_specs.json")
 
 
@@ -30,6 +35,8 @@ def match_peak(gpu, registry=None):
     if "SXM" in tokens and tokens.intersection({"PCIE", "NVL"}):
         return {"status": "SPEC_UNAVAILABLE", "sku": None, "candidates": []}
     memory = gpu.get("memory_mib")
+    if memory is not None and not nonnegative_number(memory):
+        return {"status": "SPEC_UNAVAILABLE", "sku": None, "candidates": []}
     capacity = re.search(r"\b(\d+) ?GB\b", name)
     candidates = []
     for spec in registry:
@@ -56,33 +63,46 @@ def match_peak(gpu, registry=None):
 
 
 def attain(measured, peak):
-    if not isinstance(measured, (int, float)) or isinstance(measured, bool):
+    measured = nonnegative_number(measured)
+    peak = nonnegative_number(peak)
+    if measured is None or not peak:
         return None
-    if not isinstance(peak, (int, float)) or isinstance(peak, bool):
-        return None
-    import math
-    if not all(map(math.isfinite, (measured, peak))) or measured < 0 or peak <= 0:
-        return None
-    return 100.0 * measured / peak
+    return nonnegative_number(measured / peak * 100)
 
 
-def peak_for(spec, metric):
-    """metric keys carry execution path and precision, e.g. fp16.tensor.dense."""
-    if not spec:
+def memory_peak(spec):
+    spec = spec or {}
+    if spec.get("memory_peak_quality") == "LOWER_BOUND":
         return None
-    return spec.get("compute_peaks", {}).get(metric)
+    return nonnegative_number(spec.get("memory_bandwidth_gbps")) or None
+
+
+def compare_compute(metric, reading, reference):
+    """Apply one unit and provenance policy to detail, export and node totals."""
+    reading = reading if isinstance(reading, dict) else {}
+    reference = reference or {}
+    value = nonnegative_number(reading.get("value"))
+    source_unit = reading.get("unit")
+    peak_unit = reference.get("unit")
+    origin = reference.get("value_origin")
+    calibration = reading.get("counter_unit_verified")
+    verified = calibration is True or (calibration is None and ".tensor." not in metric)
+    peak = None if origin == "AMBIGUOUS_SOURCE" else nonnegative_number(reference.get("value")) or None
+    compatible = verified and bool(source_unit) and source_unit == peak_unit
+    return {
+        "measured": value,
+        "measured_unit": source_unit,
+        "counter_unit_verified": verified,
+        "peak": peak,
+        "peak_origin": origin,
+        "unit": peak_unit or source_unit,
+        "attainment_pct": attain(value, peak) if compatible else None,
+    }
 
 
 def measured_compute(precision_measurements, spec):
-    """Only calculate attained percent for *actually measured* matching precision."""
-    result = {}
-    for metric, record in precision_measurements.items():
-        peak = peak_for(spec, metric)
-        value = record.get("value") if isinstance(record, dict) else None
-        verified = not isinstance(record, dict) or record.get("counter_unit_verified") is not False
-        result[metric] = {"measured": value,
-                          "counter_unit_verified": verified,
-                          "peak": peak["value"] if peak else None,
-                          "unit": peak["unit"] if peak else record.get("unit") if isinstance(record, dict) else None,
-                          "attainment_pct": attain(value, peak["value"]) if peak and verified else None}
-    return result
+    references = (spec or {}).get("compute_peaks", {})
+    return {
+        key: compare_compute(key, precision_measurements.get(key), references.get(key))
+        for key in dict.fromkeys((*precision_measurements, *references))
+    }

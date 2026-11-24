@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
 if __package__:
+    from .sample_schema import decode_json, nonnegative_number, validate_sample
     from .collector_config import DEFAULT_INTERVAL_MS, PROFILER_BUSY_EXIT
     from .gpu_discovery import discover_gpus
     from .node_aggregator import node_summary, compute_summary
@@ -27,6 +28,7 @@ if __package__:
     from .webui import PAGE, detail_payload, require_loopback
     from .sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory, average_buckets, chart_samples
 else:
+    from sample_schema import decode_json, nonnegative_number, validate_sample
     from collector_config import DEFAULT_INTERVAL_MS, PROFILER_BUSY_EXIT
     from gpu_discovery import discover_gpus
     from node_aggregator import node_summary, compute_summary
@@ -59,14 +61,12 @@ class NodeSupervisor:
         with pipe:
             for line in pipe:
                 try:
-                    data = json.loads(line)
-                    if not isinstance(data, dict):
-                        raise ValueError("Expected a sample object")
+                    data = decode_json(line)
+                    validate_sample(data)
                     if data.get("device") != self.by_uuid[uuid]["cuda_index"]:
                         continue
-                    data.setdefault("host_received_ns", time.time_ns())
-                    if type(data["host_received_ns"]) is not int:
-                        raise ValueError("Expected integer host timestamp")
+                    if data.get("host_received_ns") is None:
+                        data["host_received_ns"] = time.time_ns()
                     with self.lock:
                         self.latest[uuid] = data
                         self.history[uuid].samples.append(data)
@@ -173,7 +173,7 @@ class NodeSupervisor:
             latest = self.latest.get(uuid, {})
             count = len(history.samples)
         return detail_payload(self.by_uuid[uuid], self.peak_matches[uuid], latest,
-                              self.worker_status().get(uuid), count)
+                              self.worker_status().get(uuid), count, now_ns=time.time_ns())
 
     def history_for(self, uuid, chart=False):
         with self.lock:
@@ -200,7 +200,7 @@ class NodeSupervisor:
         for stamp, readings in sorted(buckets.items()):
             points.append({
                 "timestamp_ns": stamp,
-                **{key: sum(row[key] for row in readings) if readings else None for key in keys},
+                **{key: nonnegative_number(sum(row[key] for row in readings)) if readings else None for key in keys},
                 "sampled_gpus": len(readings), "total_gpus": len(self.inventory),
                 "status": "COMPLETE" if len(readings) == len(self.inventory) else "PARTIAL",
             })

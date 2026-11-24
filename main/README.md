@@ -91,6 +91,8 @@ To verify contention on a test node, confirm DCGM is actively collecting GPU pro
 
 Both collectors default to 100 ms on time-triggered GPUs. GA100 continues to use SYSCLK-triggered sampling. Production overhead has yet to be measured. On a representative node, alternate identical workload runs with collection off and on. Record GPU model, driver, CUPTI version, collector interval, application throughput and p95/p99 latency. Compare medians across repeated runs at each setting.
 
+Live detail and node summary use the same freshness threshold of five seconds. Saved reports show captured readings regardless of their age. Peak comparisons require matching units and an eligible reference. Tensor captures require explicit counter calibration metadata, including older captures that predate the flag.
+
 Tensor rates are provisional. On a dedicated GPU, run warmed, dense GEMMs of known dimensions with the benchmark's CUDA-event timing and record CUPTI counters for the matching precision. For aligned steady-state windows, compare the duration-weighted counter rate to `2 × M × N × K × completed GEMMs / elapsed seconds`. Repeat across precisions and architectures and confirm which counter counts operations or FMAs before enabling attainment for it. This repository does not yet contain hardware calibration results.
 
 ## Peak lookup and memory units

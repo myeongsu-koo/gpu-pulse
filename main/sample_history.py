@@ -1,10 +1,12 @@
 """Bounded live sample history and duration-weighted chart buckets."""
 from collections import deque
-from math import isfinite
+if __package__:
+    from .sample_schema import SECOND_NS, nonnegative_number
+else:
+    from sample_schema import SECOND_NS, nonnegative_number
 
 HISTORY_SECONDS = 120
 HISTORY_CAP = 16384
-SECOND_NS = 1_000_000_000
 
 
 class SampleHistory:
@@ -23,25 +25,26 @@ def average_buckets(samples, keys, width_ns=SECOND_NS, require_all=False):
     buckets = {}
     for sample in samples:
         stamp = sample.get("host_received_ns")
-        if not isinstance(stamp, int):
+        if type(stamp) is not int:
             continue
         bucket = buckets.setdefault(stamp // width_ns * width_ns, {})
         values = sample.get("measurements", {})
-        if require_all and any(not valid_rate(values.get(key)) for key in keys):
+        if require_all and any(nonnegative_number(values.get(key)) is None for key in keys):
             continue
-        duration = sample.get("sample_duration_ms")
-        weight = duration if valid_rate(duration) and duration > 0 else 1
+        weight = nonnegative_number(sample.get("sample_duration_ms")) or 1
         for key in keys:
-            value = values.get(key)
-            if valid_rate(value):
+            value = nonnegative_number(values.get(key))
+            if value is not None:
                 total, elapsed = bucket.get(key, (0, 0))
                 bucket[key] = total + value * weight, elapsed + weight
-    return {stamp: {key: total / elapsed for key, (total, elapsed) in metrics.items()}
-            for stamp, metrics in buckets.items()}
-
-
-def valid_rate(value):
-    return type(value) in (int, float) and isfinite(value) and value >= 0
+    result = {}
+    for stamp, metrics in buckets.items():
+        averages = {
+            key: value for key, (total, elapsed) in metrics.items()
+            if (value := nonnegative_number(total / elapsed)) is not None
+        }
+        result[stamp] = averages if not require_all or len(averages) == len(keys) else {}
+    return result
 
 
 def chart_samples(samples):

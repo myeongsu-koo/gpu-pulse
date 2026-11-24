@@ -185,7 +185,7 @@ function draw({canvas, lines, fixedMax}, samples) {
 
 function updatePrecision(comparisons) {
   const rows = Object.entries(comparisons).map(([key, record]) =>
-    [key, format(record.measured, record.unit) + (record.counter_unit_verified === false && Number.isFinite(record.measured) ? ' (provisional)' : ''), format(record.peak, record.unit) + (record.peak_origin === 'DERIVED' ? ' (derived)' : ''), format(record.attainment_pct, '%')]
+    [key, format(record.measured, record.measured_unit ?? record.unit) + (record.counter_unit_verified === false && Number.isFinite(record.measured) ? ' (provisional)' : ''), format(record.peak, record.unit) + (record.peak_origin === 'DERIVED' ? ' (derived)' : ''), format(record.attainment_pct, '%')]
   );
   if (!rows.length) rows.push(['No precision metrics available', 'N/A', 'N/A', 'N/A']);
   $('precision').replaceChildren(...rows.map(values => {
@@ -211,7 +211,8 @@ function render(data, samples) {
   $('title').textContent = gpu.model || (gpu.cuda_index == null ? 'GPU Detail' : `GPU ${gpu.cuda_index} Detail`);
   $('meta').textContent = [
     gpu.uuid, gpu.pci_bus_id && 'PCI ' + gpu.pci_bus_id, collector?.chip,
-    data.sku || data.peak_status, collector?.status === 'PROFILER_BUSY' ? 'Another profiler is using the counters' : collector?.status || 'UNKNOWN'
+    data.sku || data.peak_status, data.sample_stale && `Sample stale · ${format(data.sample_age_s, 's')} old`,
+    collector?.status === 'PROFILER_BUSY' ? 'Another profiler is using the counters' : collector?.status || 'UNKNOWN'
   ].filter(Boolean).join(' · ');
   $('error').textContent = collector?.last_error || '';
   updateCards(computeCards, data.measurements);

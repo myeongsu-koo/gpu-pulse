@@ -7,7 +7,12 @@ source of truth. We deliberately do NOT estimate FLOP/s from utilization.
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
-import math
+
+
+if __package__:
+    from .sample_schema import nonnegative_number
+else:
+    from sample_schema import nonnegative_number
 
 
 @dataclass(frozen=True)
@@ -88,12 +93,20 @@ def choose_set(sets_to_metrics: dict[str, list[str]], required: Iterable[str] = 
     return name, selected
 
 
-def _safe_num(x: object) -> float | None:
-    try:
-        v = float(x)
-        return v if math.isfinite(v) and v >= 0 else None
-    except (ValueError, TypeError):
-        return None
+def _counter_values(values, selected):
+    return {
+        spec.key: (spec, number)
+        for spec in selected
+        if (number := nonnegative_number(values.get(spec.name))) is not None
+        and (spec.category != "cache" or number <= 100)
+    }
+
+
+def _operation_rate(counters):
+    return nonnegative_number(sum(value / 1e12 * spec.factor for spec, value in counters))
+
+
+FP32_COUNTERS = ("fadd", "fmul", "ffma")
 
 
 def to_dashboard_values(values: dict[str, object], selected: list[MetricSpec], sample_seconds: float | None = None) -> dict[str, float | None]:
@@ -104,20 +117,14 @@ def to_dashboard_values(values: dict[str, object], selected: list[MetricSpec], s
     A missing/invalid duration MUST NOT produce an estimated sector rate.
     """
     out: dict[str, float | None] = {k: None for k in TARGETS}
-    present = {
-        s.key: s for s in selected
-        if s.name in values and _safe_num(values[s.name]) is not None
-    }
-    tensor = [s for s in selected if s.category == "tensor" and s.key in present]
+    present = _counter_values(values, selected)
+    tensor = [row for row in present.values() if row[0].category == "tensor"]
     if tensor:
-        out["tensor_tflops"] = sum(float(values[s.name]) * s.factor for s in tensor) / 1e12
-    if {"fadd", "fmul", "ffma"}.issubset(present):
-        out["cuda_fp32_tflops"] = sum(
-            float(values[present[k].name]) * present[k].factor
-            for k in ("fadd", "fmul", "ffma")
-        ) / 1e12
+        out["tensor_tflops"] = _operation_rate(tensor)
+    if all(key in present for key in FP32_COUNTERS):
+        out["cuda_fp32_tflops"] = _operation_rate(present[key] for key in FP32_COUNTERS)
 
-    duration = _safe_num(sample_seconds)
+    duration = nonnegative_number(sample_seconds)
     # A zero-duration sample is invalid, even though a zero counter is valid.
     duration = duration if duration is not None and duration > 0 else None
     for direct, fallback, target in (
@@ -126,16 +133,16 @@ def to_dashboard_values(values: dict[str, object], selected: list[MetricSpec], s
     ):
         if direct in present:
             # Already bytes/second: never divide by the sample duration again.
-            out[target] = float(values[present[direct].name]) / 1e9
+            out[target] = present[direct][1] / 1e9
         elif fallback in present and duration is not None:
-            sectors = float(values[present[fallback].name])
-            out[target] = sectors * SECTOR_BYTES / duration / 1e9
+            sectors = present[fallback][1]
+            out[target] = nonnegative_number(sectors / 1e9 * SECTOR_BYTES / duration)
 
     if "l1_hit" in present:
-        out["l1_hit_pct"] = float(values[present["l1_hit"].name])
+        out["l1_hit_pct"] = present["l1_hit"][1]
     for key in ("l2_hit", "l2_hit_realtime"):
         if key in present:
-            out["l2_hit_pct"] = float(values[present[key].name])
+            out["l2_hit_pct"] = present[key][1]
             break
     return out
 
@@ -171,31 +178,24 @@ def precision_dashboard_values(values: dict[str, object], selected: list[MetricS
     comparison_status and must be visible wherever a percentage is shown.
     Integer operation rates are never inferred from FP tensor counters.
     """
-    present = {
-        s.key: s for s in selected
-        if s.name in values and _safe_num(values[s.name]) is not None
-    }
+    present = _counter_values(values, selected)
     result = {}
     for key, metric in PRECISION_TARGETS.items():
-        spec = present.get(key)
-        if spec is None:
+        if key not in present:
             continue
+        spec, value = present[key]
         result[metric] = {
-            "value": float(values[spec.name]) * spec.factor / 1e12,
+            "value": _operation_rate([(spec, value)]),
             "unit": "TFLOP/s",
             "source_metric": spec.name,
             "comparison_status": "DENSE_REFERENCE_UNVERIFIED",
             "counter_unit_verified": False,
         }
-    if {"fadd", "fmul", "ffma"}.issubset(present):
-        fops = sum(
-            float(values[present[k].name]) * present[k].factor
-            for k in ("fadd", "fmul", "ffma")
-        )
+    if all(key in present for key in FP32_COUNTERS):
         result["fp32.cuda.dense"] = {
-            "value": fops / 1e12,
+            "value": _operation_rate(present[key] for key in FP32_COUNTERS),
             "unit": "TFLOP/s",
-            "source_metric": [present[k].name for k in ("fadd", "fmul", "ffma")],
+            "source_metric": [present[k][0].name for k in FP32_COUNTERS],
             "comparison_status": "MATCHED",
         }
     return result
