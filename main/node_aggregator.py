@@ -82,6 +82,7 @@ def compute_summary(inventory, latest, peak_matches, metric_key, now_ns=None, ma
     total, peak, counted = 0.0, 0.0, 0
     timestamps = []
     units = set()
+    peaks_complete = True
     for gpu in inventory:
         uid = gpu["uuid"]
         sample = latest.get(uid, {})
@@ -91,18 +92,22 @@ def compute_summary(inventory, latest, peak_matches, metric_key, now_ns=None, ma
         reading = sample.get("precision_metrics", {}).get(metric_key)
         spec = peak_matches.get(uid, {}).get("spec") or {}
         comparison = compare_compute(metric_key, reading, spec.get("compute_peaks", {}).get(metric_key))
-        if comparison["attainment_pct"] is None:
+        unit = comparison["measured_unit"]
+        if (comparison["measured"] is None or not comparison["counter_unit_verified"]
+                or unit not in ("TFLOP/s", "TOP/s")
+                or (comparison["peak"] is not None and unit != comparison["unit"])):
             continue
+        peaks_complete = peaks_complete and comparison["attainment_pct"] is not None
         total += comparison["measured"]
-        peak += comparison["peak"]
+        peak += comparison["peak"] or 0
         counted += 1
-        units.add(comparison["unit"])
+        units.add(unit)
         timestamps.append(sample["host_received_ns"])
     aligned = len(units) == 1 and bool(timestamps) and (max(timestamps)-min(timestamps))/1e9 <= 2
     return {
         "metric": metric_key, "measured": nonnegative_number(total) if counted and aligned else None,
-        "peak": nonnegative_number(peak) if counted and aligned else None,
-        "attainment_pct": attain(total, peak) if counted and aligned else None,
+        "peak": nonnegative_number(peak) if counted and aligned and peaks_complete else None,
+        "attainment_pct": attain(total, peak) if counted and aligned and peaks_complete else None,
         "status": "COMPLETE" if counted == len(inventory) and aligned and counted else "PARTIAL",
         "counted_gpus": counted, "total_gpus": len(inventory),
     }

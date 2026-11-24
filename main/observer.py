@@ -23,13 +23,13 @@ if __package__:
     from .collector_config import DEFAULT_INTERVAL_MS, PROFILER_BUSY_EXIT, profiler_busy
     from .gpu_discovery import discover_gpus
     from .sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory
-    from .metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, select_for_set, to_dashboard_values, precision_dashboard_values
+    from .metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, direct_plans, select_for_set, to_dashboard_values, precision_dashboard_values
 else:
     from sample_schema import nonnegative_number
     from collector_config import DEFAULT_INTERVAL_MS, PROFILER_BUSY_EXIT, profiler_busy
     from gpu_discovery import discover_gpus
     from sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory
-    from metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, select_for_set, to_dashboard_values, precision_dashboard_values
+    from metrics import SPECS, KEY_TO_SPEC, choose_set, coverage, direct_plans, select_for_set, to_dashboard_values, precision_dashboard_values
 
 LOG = logging.getLogger("cupti-observer")
 
@@ -98,8 +98,6 @@ def discover_sets(chip: str) -> dict[str, list[str]]:
 
 def select_plan(chip: str, forced_set: str | None, required: list[str]) -> tuple[str, list]:
     sets = discover_sets(chip)
-    if not sets:
-        raise RuntimeError("CUPTI did not expose single-pass metric sets; requires supported CUPTI 13.2+.")
     if forced_set is not None:
         if forced_set not in sets:
             raise ValueError(f"Unknown single-pass set {forced_set!r}; available: {list(sets)}")
@@ -111,6 +109,33 @@ def select_plan(chip: str, forced_set: str | None, required: list[str]) -> tuple
             raise ValueError(f"{forced_set}: none of the supported target metrics are present")
         return forced_set, specs
     return choose_set(sets, required)
+
+
+def configure_plan(collector, named, required, forced, prefer_compute, **options):
+    candidates = [named] if named else []
+    if not forced:
+        direct = [(None, specs) for specs in direct_plans()
+                  if set(required).issubset(spec.key for spec in specs)]
+        if prefer_compute:
+            compute = [plan for plan in direct if any(s.category in ("tensor", "fp32") for s in plan[1])]
+            candidates = compute + candidates + [plan for plan in direct if plan not in compute]
+        else:
+            candidates += direct
+    last_error = None
+    for set_name, specs in candidates:
+        try:
+            collector.configure(metrics=[s.name for s in specs],
+                                single_pass_metric_set_name=set_name, **options)
+            return set_name, specs
+        except Exception as exc:
+            rejected = isinstance(exc, ValueError) or any(code in str(exc) for code in (
+                "ERROR_INVALID_PARAMETER", "ERROR_INVALID_METRIC_NAME", "ERROR_NOT_SUPPORTED",
+            ))
+            if forced or not rejected or profiler_busy(exc):
+                raise
+            LOG.info("CUPTI rejected %s: %s", [s.name for s in specs], exc)
+            last_error = exc
+    raise RuntimeError(f"No supported single-pass configuration for required keys {required}: {last_error}") from last_error
 
 
 def capability_report(chip: str) -> dict:
@@ -167,7 +192,8 @@ def emit_sample(sample, names: list[str], selected, chip: str, device: int) -> d
             raw, selected, (ts_end - ts_start) / 1e9 if ts_end > ts_start else None
         ),
         "raw_metrics": raw,
-        "precision_metrics": precision_dashboard_values(raw, selected),
+        "precision_metrics": precision_dashboard_values(raw, selected, (ts_end - ts_start) / 1e9),
+        "selected_keys": [s.key for s in selected],
         "metric_coverage": coverage(selected)["tensor_precisions"],
     }
 
@@ -200,31 +226,35 @@ def run(args) -> int:
         unknown = set(requested) - set(KEY_TO_SPEC)
         if unknown:
             raise ValueError(f"Unknown --require keys: {sorted(unknown)}. Valid: {list(KEY_TO_SPEC)}")
-        set_name, specs = select_plan(chip, args.metric_set, requested)
-        names = [s.name for s in specs]
+        try:
+            named = select_plan(chip, args.metric_set, requested)
+        except ValueError:
+            if args.metric_set is not None:
+                raise
+            named = None
         is_ga100 = chip.lower().startswith("ga100")
         interval = args.sysclk_cycles if is_ga100 else args.interval_ms * 1_000_000
         trigger = (pm_sampling.TriggerMode.GPU_SYSCLK_INTERVAL if is_ga100
                    else pm_sampling.TriggerMode.GPU_TIME_INTERVAL)
-        state.set_status(state="configured", device=args.device, chip=chip,
-                         single_pass_set=set_name, metrics=names, coverage=coverage(specs),
-                         trigger=trigger.name, sampling_interval=int(interval))
-        LOG.info("GPU %d (%s), set=%s, metrics=%s", args.device, chip, set_name, ", ".join(names))
-
         collector = pm_sampling.Collector(device_index=args.device)
         collector.enable()
         started = False
         file = None
         server = None
         try:
-            collector.configure(
-                metrics=names,
+            set_name, specs = configure_plan(
+                collector, named, requested, args.metric_set is not None,
+                getattr(args, "prefer_compute", False),
                 hardware_buffer_size=args.hardware_buffer_mb * 1024 * 1024,
-                sampling_interval=int(interval),
-                trigger_mode=trigger,
-                single_pass_metric_set_name=set_name,
+                sampling_interval=int(interval), trigger_mode=trigger,
                 hw_buffer_append_mode=pm_sampling.HardwareBufferAppendMode.KEEP_LATEST,
             )
+            names = [s.name for s in specs]
+            state.set_status(state="configured", device=args.device, chip=chip,
+                             single_pass_set=set_name, metrics=names, coverage=coverage(specs),
+                             trigger=trigger.name, sampling_interval=int(interval))
+            LOG.info("GPU %d (%s), set=%s, metrics=%s", args.device, chip, set_name, ", ".join(names))
+
             if args.web:
                 if __package__:
                     from .webui import start_server
@@ -307,6 +337,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--device", type=int, default=0, help="CUDA device index")
     p.add_argument("--probe", action="store_true", help="Only report metric capabilities/single-pass coverage")
+    p.add_argument("--prefer-compute", action="store_true", help="Try direct single-pass compute configurations before the named plan")
     p.add_argument("--metric-set", help="Force a named CUPTI single-pass metric set")
     p.add_argument("--require", default="", help="Comma-separated internal keys required in selected single-pass set")
     p.add_argument("--interval-ms", type=int, default=DEFAULT_INTERVAL_MS, help="GPU time interval in milliseconds (except SYSCLK sampling)")

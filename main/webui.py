@@ -22,6 +22,31 @@ else:
 PAGE = Path(__file__).with_name("gpu_detail.html")
 
 
+def missing_measurements(sample, collector, stale):
+    """Keep the value null and expose a reason to live and offline clients."""
+    selected = set(sample.get("selected_keys") or [])
+    known = "selected_keys" in sample
+    available = {
+        "tensor_tflops": any(key.startswith("tensor_") for key in selected),
+        "cuda_fp32_tflops": {"fadd", "fmul", "ffma"} <= selected,
+        "dram_read_gbps": bool({"dram_read", "dram_read_sectors"} & selected),
+        "dram_write_gbps": bool({"dram_write", "dram_write_sectors"} & selected),
+        "l1_hit_pct": "l1_hit" in selected,
+        "l2_hit_pct": bool({"l2_hit", "l2_hit_realtime"} & selected),
+    }
+    reasons = {}
+    for field, supported in available.items():
+        if stale:
+            reasons[field] = "Stale sample"
+        elif not sample:
+            reasons[field] = (collector or {}).get("status") or "Waiting for samples"
+            if reasons[field] in ("RUNNING", "OFFLINE REPORT"):
+                reasons[field] = "Waiting for samples"
+        elif sample.get("measurements", {}).get(field) is None:
+            reasons[field] = "Outside selected counter set" if known and not supported else "No valid reading"
+    return reasons
+
+
 def detail_payload(gpu, match, sample, collector, history_count, *, now_ns=None):
     age = sample_age_seconds(sample, now_ns) if now_ns is not None else None
     stale = age is not None and age > MAX_SAMPLE_AGE_S
@@ -37,6 +62,7 @@ def detail_payload(gpu, match, sample, collector, history_count, *, now_ns=None)
         "peak_source": spec.get("source"),
         "memory_bandwidth_peak_gbps": memory_peak(spec),
         "compute": compute, "measurements": current.get("measurements", {}),
+        "measurement_reasons": missing_measurements(sample, collector, stale),
         "raw_metrics": sample.get("raw_metrics", {}),
         "last_host_received_ns": sample.get("host_received_ns"),
         "history_count": history_count, "sample_age_s": age, "sample_stale": stale,

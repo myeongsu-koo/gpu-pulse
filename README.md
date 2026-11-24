@@ -27,7 +27,7 @@ Collectors launch no workload kernels and retain a CUDA primary context while sa
 | Node Summary | CUDA-visible GPU inventory, collector status, node DRAM and compute aggregates, and measurement coverage |
 | GPU Detail | Live compute, DRAM and cache charts, measured versus dense peak by precision, total VRAM and metric provenance |
 
-The registry covers T4, L4, L40S, A100 40/80 GB in PCIe and SXM, H100 SXM, H200 SXM, B200, and B300. A registry match supplies theoretical peaks. Live counter availability depends on the GPU, CUPTI version, and selected single-pass set. The dashboard displays missing values as **N/A** and flags partial node coverage. Node time alignment uses host receipt time.
+The registry covers T4, L4, L40S, A100 40/80 GB in PCIe and SXM, H100 SXM, H200 SXM, B200, and B300. A registry match supplies theoretical peaks. Live counter availability depends on the GPU, CUPTI version, and selected single-pass set. GPU Detail explains missing live readings, including stale samples and counters outside the selected plan. Node Summary reports coverage. Use the [runtime metric selection guide](main/README.md#runtime-metric-selection) for compute-first collection and fallback behavior. Node time alignment uses host receipt time.
 
 ## Install command-line tools
 

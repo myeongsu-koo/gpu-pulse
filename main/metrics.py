@@ -1,11 +1,10 @@
 """Metric planning and unit-safe transformation.  No GPU/CUPTI imports.
 
-IMPORTANT: A metric is considered collectable only when the current GPU lists
-its base metric in an actual CUPTI single-pass set; configure() is the final
-source of truth. We deliberately do NOT estimate FLOP/s from utilization.
+Named-set discovery and direct single-pass candidates are preliminary.
+CUPTI configuration and successful decode establish actual coverage. We deliberately do NOT estimate FLOP/s from utilization.
 """
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable
 
 
@@ -56,6 +55,20 @@ KEY_TO_SPEC = {s.key: s for s in SPECS}
 TARGETS = ("tensor_tflops", "cuda_fp32_tflops", "dram_read_gbps", "dram_write_gbps", "l1_hit_pct", "l2_hit_pct")
 
 
+def direct_plans():
+    """Bounded startup probes. CUPTI must accept each complete configuration."""
+    fp16 = replace(KEY_TO_SPEC["tensor_fp16"],
+                   base="sm__ops_path_tensor_src_fp16_dst_fp32_sparsity_off", suffix=".sum")
+    fp32 = [replace(KEY_TO_SPEC[key], suffix=".sum") for key in FP32_COUNTERS]
+    memory = [KEY_TO_SPEC[key] for key in ("dram_read", "dram_write")]
+    sectors = [KEY_TO_SPEC[key] for key in ("dram_read_sectors", "dram_write_sectors")]
+    for compute in ([fp16, *fp32], [fp16], fp32):
+        for bandwidth in (memory, sectors, []):
+            yield compute + bandwidth
+    yield memory
+    yield sectors
+
+
 def base_name(metric: str) -> str:
     parts = metric.split(".")
     # CUPTI can qualify a base as <domain>.<set>.<unit>__<counter>.
@@ -95,13 +108,21 @@ def choose_set(sets_to_metrics: dict[str, list[str]], required: Iterable[str] = 
     return name, selected
 
 
-def _counter_values(values, selected):
-    return {
+def _counter_values(values, selected, sample_seconds=None):
+    duration = nonnegative_number(sample_seconds)
+    counters = {
         spec.key: (spec, number)
         for spec in selected
         if (number := nonnegative_number(values.get(spec.name))) is not None
         and (spec.category != "cache" or number <= 100)
     }
+    for key, (spec, value) in list(counters.items()):
+        if spec.suffix == ".sum" and spec.category in ("tensor", "fp32"):
+            if duration:
+                counters[key] = (spec, value / duration)
+            else:
+                del counters[key]
+    return counters
 
 
 def _operation_rate(counters):
@@ -119,9 +140,9 @@ def to_dashboard_values(values: dict[str, object], selected: list[MetricSpec], s
     A missing/invalid duration MUST NOT produce an estimated sector rate.
     """
     out: dict[str, float | None] = {k: None for k in TARGETS}
-    present = _counter_values(values, selected)
+    present = _counter_values(values, selected, sample_seconds)
     tensor = [row for row in present.values() if row[0].category == "tensor"]
-    if tensor:
+    if tensor and len(tensor) == sum(s.category == "tensor" for s in selected):
         out["tensor_tflops"] = _operation_rate(tensor)
     if all(key in present for key in FP32_COUNTERS):
         out["cuda_fp32_tflops"] = _operation_rate(present[key] for key in FP32_COUNTERS)
@@ -172,7 +193,7 @@ PRECISION_TARGETS = {
 }
 
 
-def precision_dashboard_values(values: dict[str, object], selected: list[MetricSpec]) -> dict[str, dict]:
+def precision_dashboard_values(values: dict[str, object], selected: list[MetricSpec], sample_seconds=None) -> dict[str, dict]:
     """Return ONLY genuine decoded arithmetic-operation rates.
 
     A dense spec can be used as an *explicit reference*, but PM Sampling does
@@ -180,7 +201,7 @@ def precision_dashboard_values(values: dict[str, object], selected: list[MetricS
     comparison_status and must be visible wherever a percentage is shown.
     Integer operation rates are never inferred from FP tensor counters.
     """
-    present = _counter_values(values, selected)
+    present = _counter_values(values, selected, sample_seconds)
     result = {}
     for key, metric in PRECISION_TARGETS.items():
         if key not in present:
