@@ -686,6 +686,175 @@
       },
       "memory_bandwidth_source": "https://resources.nvidia.com/en-us-blackwell-architecture/blackwell-ultra-datasheet",
       "memory_mib_range": [273408, 297984]
+    },
+    {
+      "sku": "h100-80gb-pcie",
+      "aliases": [],
+      "exact_names": [
+        "H100 PCIe",
+        "H100 PCIe 80GB",
+        "H100 80GB PCIe"
+      ],
+      "memory_gb": 80,
+      "memory_bandwidth_gbps": 2000,
+      "source": "https://www.nvidia.com/content/dam/en-zz/Solutions/gtcs22/data-center/h100/PB-11133-001_v01.pdf",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 51.2,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://resources.nvidia.com/en-us-hopper-architecture",
+          "value_origin": "PUBLISHED"
+        },
+        "fp64.cuda.dense": {
+          "value": 25.6,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://resources.nvidia.com/en-us-hopper-architecture",
+          "value_origin": "PUBLISHED"
+        },
+        "tf32.tensor.dense": {
+          "value": 378,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://resources.nvidia.com/en-us-hopper-architecture",
+          "value_origin": "PUBLISHED"
+        },
+        "fp16.tensor.dense": {
+          "value": 756,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://resources.nvidia.com/en-us-hopper-architecture",
+          "value_origin": "PUBLISHED"
+        },
+        "bf16.tensor.dense": {
+          "value": 756,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://resources.nvidia.com/en-us-hopper-architecture",
+          "value_origin": "PUBLISHED"
+        },
+        "fp8.tensor.dense": {
+          "value": 1513,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://resources.nvidia.com/en-us-hopper-architecture",
+          "value_origin": "PUBLISHED"
+        }
+      }
+    },
+    {
+      "sku": "h200-141gb-nvl",
+      "aliases": [],
+      "exact_names": [
+        "H200 NVL",
+        "H200 NVL 141GB"
+      ],
+      "memory_gb": 141,
+      "memory_bandwidth_gbps": 4800,
+      "source": "https://www.nvidia.com/en-us/data-center/h200/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 60,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/",
+          "value_origin": "PUBLISHED"
+        },
+        "fp64.cuda.dense": {
+          "value": 30,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/",
+          "value_origin": "PUBLISHED"
+        },
+        "tf32.tensor.dense": {
+          "value": 417.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/",
+          "value_origin": "DERIVED",
+          "published_value": 835,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2
+        },
+        "fp16.tensor.dense": {
+          "value": 835.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/",
+          "value_origin": "DERIVED",
+          "published_value": 1671,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2
+        },
+        "bf16.tensor.dense": {
+          "value": 835.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/",
+          "value_origin": "DERIVED",
+          "published_value": 1671,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2
+        },
+        "fp8.tensor.dense": {
+          "value": 1670.5,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/h200/",
+          "value_origin": "DERIVED",
+          "published_value": 3341,
+          "published_unit": "TFLOP/s",
+          "published_sparsity": "sparse",
+          "divisor": 2
+        }
+      }
+    },
+    {
+      "sku": "rtx-pro-6000-blackwell-server",
+      "aliases": [],
+      "exact_names": [
+        "RTX PRO 6000 Blackwell Server Edition"
+      ],
+      "memory_gb": 96,
+      "memory_bandwidth_gbps": 1597,
+      "source": "https://www.nvidia.com/en-us/data-center/rtx-pro-6000-blackwell-server-edition/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 120,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/rtx-pro-6000-blackwell-server-edition/",
+          "value_origin": "PUBLISHED"
+        }
+      },
+      "memory_mib_range": [
+        91136,
+        101376
+      ]
+    },
+    {
+      "sku": "rtx-pro-4500-blackwell-server",
+      "aliases": [],
+      "exact_names": [
+        "RTX PRO 4500 Blackwell Server Edition"
+      ],
+      "memory_gb": 32,
+      "memory_bandwidth_gbps": 800,
+      "source": "https://www.nvidia.com/en-us/data-center/rtx-pro-4500-blackwell-server-edition/",
+      "compute_peaks": {
+        "fp32.cuda.dense": {
+          "value": 51,
+          "unit": "TFLOP/s",
+          "sparsity": "dense",
+          "source": "https://www.nvidia.com/en-us/data-center/rtx-pro-4500-blackwell-server-edition/",
+          "value_origin": "PUBLISHED"
+        }
+      }
     }
   ]
 }

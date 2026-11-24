@@ -50,13 +50,14 @@ def require_loopback(host):
         raise ValueError("Dashboard binds to 127.0.0.1 only. Use SSH forwarding for remote access.")
 
 
-def start_server(state, host: str = "127.0.0.1", port: int = 8765):
+def start_server(state, host: str = "127.0.0.1", port: int = 8765, *, gpu=None):
     require_loopback(host)
     device = state.snapshot()["status"].get("device")
-    try:
-        gpu = next((g for g in discover_gpus() if device is not None and g["cuda_index"] == device), None)
-    except (OSError, AttributeError, RuntimeError):
-        gpu = None
+    if gpu is None:
+        try:
+            gpu = next((g for g in discover_gpus() if g["cuda_index"] == device), None)
+        except (OSError, AttributeError, RuntimeError):
+            gpu = None
     gpu = gpu or {"cuda_index": device}
     match = match_peak(gpu)
 

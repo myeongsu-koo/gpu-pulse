@@ -60,17 +60,17 @@ The agent enumerates CUDA-visible devices and uses their CUDA ordinals directly.
 
 Both live dashboards expire samples by age (`--history-seconds`, default 120). A hard cap of 16,384 samples per GPU bounds memory at high sampling rates. The node agent exposes this cap as `--history`. Live GPU charts use half-second buckets. Node charts use duration-weighted per-GPU DRAM averages within one-second host-receipt buckets and sum the available GPU averages. A partial point shows how many GPUs contributed. Host receipt times approximate alignment across devices.
 
-The output directory contains stderr from each GPU's latest worker attempt. Exit code 0 appears as `STOPPED`. Failed launches and nonzero exits retry with per-GPU backoff from 2 to 60 seconds. The ring buffers reset when the agent restarts.
+The log directory retains stderr from the latest two worker attempts per GPU. The agent removes its temporary directory on shutdown. Pass `--output-dir` to retain logs across shutdowns. Exit code 0 appears as `STOPPED`. Failed launches and nonzero exits retry with per-GPU backoff from 2 to 60 seconds. The ring buffers reset when the agent restarts.
 
-Both dashboards listen on IPv4 loopback (`127.0.0.1`). Use SSH port forwarding for remote viewing.
+Both dashboards listen on IPv4 loopback (`127.0.0.1`). The `--bind` and `--host` compatibility flags accept only that address. Use SSH port forwarding for remote viewing.
 
 ## Generate an offline HTML report
 
 Run the exporter from this checkout with Python 3. It reads local observer NDJSON, standalone API captures, or a node GPU’s recent-history JSON. The resulting HTML embeds its data, styles, and scripts. Open it directly in a browser on an isolated network.
 
 ```bash
-# Existing standalone capture
-python exporter_html.py gpu0.jsonl -o gpu0-report.html --model 'NVIDIA H200'
+# Standalone capture with embedded GPU inventory
+python exporter_html.py gpu0.jsonl -o gpu0-report.html --compact
 
 # Save the retained GPU samples from a node agent while it is running.
 # Substitute the UUID shown in Node Summary.
@@ -80,10 +80,20 @@ python exporter_html.py gpu0-history.json -o gpu0-report.html
 
 The `curl` command is only for copying a capture from a running agent. Report generation and viewing work from the saved file with Python and a browser, without GPU libraries or network access.
 
+Standalone JSONL now carries CUDA model, UUID and total VRAM metadata when available. Older captures can use `--model` and `--memory-mib`. The optional `--compact` flag embeds half-second chart averages and the latest-sample detail.
+
+## Profiler conflicts and hardware validation
+
+When CUPTI reports that another profiler owns the counters, the node marks the device `PROFILER_BUSY` and starts retrying after at least 30 seconds. The standalone observer prints the conflict and exits with status 75. Check for another GPU Pulse worker, Nsight, or DCGM hardware profiling. Coordinate with the monitoring owner before pausing DCGM profiling with `dcgmi profile --pause`, and resume it with `dcgmi profile --resume` when done. See [NVIDIA DCGM profiling](https://docs.nvidia.com/datacenter/dcgm/latest/learn/modules/profiling.html).
+
+Both collectors default to 100 ms on time-triggered GPUs. GA100 continues to use SYSCLK-triggered sampling. Production overhead has yet to be measured. On a representative node, alternate identical workload runs with collection off and on. Record GPU model, driver, CUPTI version, collector interval, application throughput and p95/p99 latency. Compare medians across repeated runs at each setting.
+
+Tensor rates are provisional. On a dedicated GPU, run warmed, dense GEMMs of known dimensions with the benchmark's CUDA-event timing and record CUPTI counters for the matching precision. For aligned steady-state windows, compare the duration-weighted counter rate to `2 × M × N × K × completed GEMMs / elapsed seconds`. Repeat across precisions and architectures and confirm which counter counts operations or FMAs before enabling attainment for it. This repository does not yet contain hardware calibration results.
+
 ## Peak lookup and memory units
 
 - Hyphenated A100 names such as `NVIDIA A100-SXM4-40GB` and `NVIDIA A100-PCIE-80GB` resolve to their specific form factors. A bare A100 label leaves the form factor unresolved.
-- Driver names `NVIDIA H100 80GB HBM3` and `NVIDIA H200` resolve to SXM references. H100 PCIe and H100/H200 NVL remain outside the current registry.
+- Driver names `NVIDIA H100 80GB HBM3` and `NVIDIA H200` resolve to SXM references. H100 PCIe and H200 NVL have separate registry entries. H100 NVL remains outside the registry.
 - The matcher accepts reported **total memory in MiB**, with per-SKU ranges for L40S and B300. Example totals include L40S at 46,068 MiB and B300 at 275,040 MiB. In Linux GPU Burn’s initialization line, the first memory number is total memory in MiB. The parenthesized numbers describe available memory and test allocation.
 
 Hopper and Blackwell compute records include `value_origin`. Derived records carry the published value, unit, divisor and, when relevant, GPU count and sparsity. HGX FP64 rows with ambiguous CUDA-only provenance are excluded from attainment.

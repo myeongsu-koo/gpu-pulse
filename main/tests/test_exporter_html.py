@@ -37,3 +37,15 @@ class ExporterTests(unittest.TestCase):
         samples = [{"device": device, "measurements": {}} for device in (0, 1)]
         with self.assertRaisesRegex(ValueError, "one CUDA device"):
             render_report({"samples": samples})
+
+    def test_embedded_inventory_and_compact_capture(self):
+        metadata = {"uuid": "GPU-a", "model": "NVIDIA H200", "memory_mib": 143771}
+        samples = [{"device": 0, "gpu": metadata, "host_received_ns": 1000 + index,
+                    "measurements": {"dram_read_gbps": rate}}
+                   for index, rate in enumerate((10, 20))]
+        page = render_report({"samples": samples}, compact=True)
+        payload = json.loads(page.split(DATA_TAG, 1)[1].split("</script>", 1)[0])
+        self.assertEqual(payload["sku"], "h200-141gb-sxm")
+        self.assertEqual(payload["gpu"], {**metadata, "cuda_index": 0})
+        self.assertEqual(payload["samples"][0]["measurements"]["dram_read_gbps"], 15)
+        self.assertEqual(len(payload["samples"]), 1)

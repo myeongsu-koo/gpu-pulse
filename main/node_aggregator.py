@@ -96,7 +96,10 @@ def compute_summary(inventory, latest, peak_matches, metric_key, now_ns=None, ma
         if not isinstance(stamp, int) or not 0 <= now_ns-stamp <= max_age_s*1e9:
             continue
         metrics = sample.get("precision_metrics", {})
-        value = (metrics.get(metric_key) or {}).get("value")
+        reading = metrics.get(metric_key) or {}
+        if reading.get("counter_unit_verified") is False:
+            continue
+        value = reading.get("value")
         spec = (peak_matches.get(uid, {}) or {}).get("spec") or {}
         peak_rec = spec.get("compute_peaks", {}).get(metric_key)
         if not _number(value) or not peak_rec or not _number(peak_rec.get("value")):

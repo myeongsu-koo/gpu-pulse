@@ -20,12 +20,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
 if __package__:
+    from .collector_config import DEFAULT_INTERVAL_MS, PROFILER_BUSY_EXIT
     from .gpu_discovery import discover_gpus
     from .node_aggregator import node_summary, compute_summary
     from .peak_registry import match_peak, load_registry
     from .webui import PAGE, detail_payload, require_loopback
     from .sample_history import HISTORY_CAP, HISTORY_SECONDS, SampleHistory, average_buckets, chart_samples
 else:
+    from collector_config import DEFAULT_INTERVAL_MS, PROFILER_BUSY_EXIT
     from gpu_discovery import discover_gpus
     from node_aggregator import node_summary, compute_summary
     from peak_registry import match_peak, load_registry
@@ -43,7 +45,8 @@ class NodeSupervisor:
         if len(self.by_uuid) != len(self.inventory):
             raise ValueError("Duplicate GPU UUID")
         self.peak_matches = {g["uuid"]: match_peak(g) for g in self.inventory}
-        self.output_dir = Path(output_dir or tempfile.mkdtemp(prefix="gpu-pulse-node-")).resolve()
+        self._temp_dir = tempfile.TemporaryDirectory(prefix="gpu-pulse-node-") if output_dir is None else None
+        self.output_dir = Path(self._temp_dir.name if self._temp_dir else output_dir).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.worker_options = list(worker_options or [])
         self.lock = threading.RLock()
@@ -82,9 +85,11 @@ class NodeSupervisor:
         uuid = gpu["uuid"]
         errfile = self.output_dir / (uuid.replace("/", "_") + ".stderr.log")
         cmd = [sys.executable, str(ROOT / "observer.py"), "--device",
-               str(gpu["cuda_index"]), *self.worker_options, "--output", "-"]
+               str(gpu["cuda_index"]), *self.worker_options, "--worker-stream", "--output", "-"]
         record = {"status": "STARTING", "delay": delay, "started_at": time.monotonic()}
         try:
+            if errfile.exists() and errfile.stat().st_size:
+                errfile.replace(errfile.with_suffix(".log.1"))
             with errfile.open("w", encoding="utf-8") as error_output:
                 proc = subprocess.Popen(cmd, cwd=str(ROOT), stderr=error_output,
                                         stdout=subprocess.PIPE, text=True, encoding="utf-8",
@@ -108,11 +113,15 @@ class NodeSupervisor:
             if proc is None:
                 if record["status"] != "FAILED":
                     continue
-            elif proc.poll() in (0, None) or record["thread"].is_alive():
-                continue
+            else:
+                returncode = proc.poll()
+                if returncode in (0, None) or record["thread"].is_alive():
+                    continue
             if "retry_at" not in record:
                 if proc is not None and now - record["started_at"] >= 60:
                     record["delay"] = 2
+                if proc is not None and returncode == PROFILER_BUSY_EXIT:
+                    record["delay"] = max(record["delay"], 30)
                 record["retry_at"] = now + record["delay"]
             if now >= record["retry_at"]:
                 LOG.info("Restarting collector for %s", uuid)
@@ -130,6 +139,8 @@ class NodeSupervisor:
             if proc is not None:
                 if returncode is None:
                     status = "RUNNING"
+                elif returncode == PROFILER_BUSY_EXIT:
+                    status = "PROFILER_BUSY"
                 else:
                     status = "STOPPED" if returncode == 0 else "FAILED"
             result[uuid] = {"status": status, "pid": rec.get("pid"), "returncode": returncode}
@@ -210,6 +221,8 @@ class NodeSupervisor:
                     proc.wait(timeout=5)
         for thread in self.threads:
             thread.join(timeout=1)
+        if self._temp_dir:
+            self._temp_dir.cleanup()
 
 
 def create_server(supervisor, host="127.0.0.1", port=8766):
@@ -280,12 +293,13 @@ def create_server(supervisor, host="127.0.0.1", port=8766):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", choices=["127.0.0.1"], default="127.0.0.1",
+                        help="Compatibility option. Dashboard accepts IPv4 loopback only.")
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--history", type=int, default=HISTORY_CAP, help="Hard sample cap per GPU")
     parser.add_argument("--history-seconds", type=int, default=HISTORY_SECONDS)
-    parser.add_argument("--interval-ms", type=int, default=100)
+    parser.add_argument("--interval-ms", type=int, default=DEFAULT_INTERVAL_MS)
     parser.add_argument("--poll-ms", type=int, default=500)
     args = parser.parse_args(argv)
     if min(args.history, args.history_seconds) <= 0 or args.interval_ms <= 0 or args.poll_ms <= 0:

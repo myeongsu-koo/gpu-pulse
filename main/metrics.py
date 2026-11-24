@@ -185,6 +185,7 @@ def precision_dashboard_values(values: dict[str, object], selected: list[MetricS
             "unit": "TFLOP/s",
             "source_metric": spec.name,
             "comparison_status": "DENSE_REFERENCE_UNVERIFIED",
+            "counter_unit_verified": False,
         }
     if {"fadd", "fmul", "ffma"}.issubset(present):
         fops = sum(

@@ -79,8 +79,10 @@ def measured_compute(precision_measurements, spec):
     for metric, record in precision_measurements.items():
         peak = peak_for(spec, metric)
         value = record.get("value") if isinstance(record, dict) else None
+        verified = not isinstance(record, dict) or record.get("counter_unit_verified") is not False
         result[metric] = {"measured": value,
+                          "counter_unit_verified": verified,
                           "peak": peak["value"] if peak else None,
                           "unit": peak["unit"] if peak else record.get("unit") if isinstance(record, dict) else None,
-                          "attainment_pct": attain(value, peak["value"]) if peak else None}
+                          "attainment_pct": attain(value, peak["value"]) if peak and verified else None}
     return result
