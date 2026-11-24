@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GPU Pulse · GPU Detail</title>
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { max-width: 1200px; margin: auto; padding: 24px; background: #0b1220; color: #e6edf8; font: 14px/1.5 system-ui; }
+header { margin-bottom: 24px; }
+h1 { font-size: 24px; margin: 6px 0; }
+h2 { font-size: 17px; margin: 0 0 10px; }
+p { margin: 0 0 10px; }
+a { color: #80c7ff; }
+small, .muted { color: #9fb0c5; }
+section, details { border: 1px solid #29394d; border-radius: 10px; background: #111c2a; margin: 14px 0; padding: 16px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 9px; border-bottom: 1px solid #29394d; }
+th { color: #a7bad0; font-size: 12px; }
+.cards, .charts { display: grid; gap: 10px; }
+.cards { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); margin: 12px 0; }
+.card { background: #172638; padding: 12px; }
+.card b { display: block; font-size: 20px; }
+.chart { width: 100%; height: 160px; display: block; }
+.key { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 4px 0 8px; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+#error { color: #ecb79d; }
+@media (max-width: 600px) { body { padding: 12px; } th, td { padding: 5px; font-size: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <a href="/" id="back" hidden>← Node Summary</a>
+  <h1 id="title">GPU Detail</h1>
+  <p class="muted" id="meta">Connecting</p>
+  <p id="error" role="status"></p>
+</header>
+<section>
+  <h2>Compute</h2>
+  <div class="cards" id="compute-cards"></div>
+  <div class="charts" id="compute-charts"></div>
+  <p class="muted">Attainment uses the matching SKU’s dense theoretical peak. Tensor rates are provisional until counter units are calibrated.</p>
+  <table>
+    <thead><tr><th>Precision / path</th><th>Measured</th><th>Peak</th><th>Attainment</th></tr></thead>
+    <tbody id="precision"></tbody>
+  </table>
+</section>
+<section>
+  <h2>Memory</h2>
+  <div class="cards" id="memory-cards"></div>
+  <div class="charts" id="memory-charts"></div>
+</section>
+<details>
+  <summary>Collector and metric provenance</summary>
+  <pre id="diagnostics"></pre>
+</details>
+<script type="application/json" id="report-data">{"gpu": {"uuid": "GPU-DEMO", "model": "NVIDIA H200", "cuda_index": 0, "memory_mib": 143771}, "collector": {"chip": "GH100 \u2022 Synthetic example data", "status": "OFFLINE REPORT"}, "peak_status": "MATCHED", "sku": "h200-141gb-sxm", "peak_source": "https://www.nvidia.com/en-us/data-center/h200/", "memory_bandwidth_peak_gbps": 4800, "compute": {"fp16.tensor.dense": {"measured": 641.34, "counter_unit_verified": false, "peak": 989.5, "unit": "TFLOP/s", "attainment_pct": null, "peak_origin": "DERIVED"}, "fp32.cuda.dense": {"measured": 34.22, "counter_unit_verified": true, "peak": 67, "unit": "TFLOP/s", "attainment_pct": 51.07462686567164, "peak_origin": "PUBLISHED", "comparison_note": "Dense theoretical reference; runtime sparsity not independently verified"}, "fp64.cuda.dense": {"measured": null, "peak": 34, "unit": "TFLOP/s", "attainment_pct": null, "peak_origin": "PUBLISHED"}, "tf32.tensor.dense": {"measured": null, "peak": 494.5, "unit": "TFLOP/s", "attainment_pct": null, "peak_origin": "DERIVED"}, "bf16.tensor.dense": {"measured": null, "peak": 989.5, "unit": "TFLOP/s", "attainment_pct": null, "peak_origin": "DERIVED"}, "fp8.tensor.dense": {"measured": null, "peak": 1979, "unit": "TFLOP/s", "attainment_pct": null, "peak_origin": "DERIVED"}}, "measurements": {"tensor_tflops": 641.34, "cuda_fp32_tflops": 34.22, "dram_read_gbps": 1840.56, "dram_write_gbps": 878.48, "l1_hit_pct": 86.06, "l2_hit_pct": 89.44}, "raw_metrics": {}, "last_host_received_ns": null, "history_count": 120, "samples": [{"host_received_ns": 500000000, "measurements": {"tensor_tflops": 572.0, "cuda_fp32_tflops": 28.0, "dram_read_gbps": 344.0, "dram_write_gbps": 119.25, "l1_hit_pct": 78.5, "l2_hit_pct": 85.0}}, {"host_received_ns": 1000000000, "measurements": {"tensor_tflops": 615.4, "cuda_fp32_tflops": 31.89, "dram_read_gbps": 358.47, "dram_write_gbps": 128.01, "l1_hit_pct": 83.23, "l2_hit_pct": 87.78}}, {"host_received_ns": 1500000000, "measurements": {"tensor_tflops": 644.12, "cuda_fp32_tflops": 34.47, "dram_read_gbps": 368.04, "dram_write_gbps": 133.81, "l1_hit_pct": 86.36, "l2_hit_pct": 89.62}}, {"host_received_ns": 2000000000, "measurements": {"tensor_tflops": 648.46, "cuda_fp32_tflops": 34.86, "dram_read_gbps": 369.49, "dram_write_gbps": 134.69, "l1_hit_pct": 86.83, "l2_hit_pct": 89.9}}, {"host_received_ns": 2500000000, "measurements": {"tensor_tflops": 626.94, "cuda_fp32_tflops": 32.93, "dram_read_gbps": 362.31, "dram_write_gbps": 130.34, "l1_hit_pct": 84.49, "l2_hit_pct": 88.52}}, {"host_received_ns": 3000000000, "measurements": {"tensor_tflops": 586.85, "cuda_fp32_tflops": 29.33, "dram_read_gbps": 348.95, "dram_write_gbps": 122.25, "l1_hit_pct": 80.12, "l2_hit_pct": 85.95}}, {"host_received_ns": 3500000000, "measurements": {"tensor_tflops": 541.74, "cuda_fp32_tflops": 25.28, "dram_read_gbps": 333.91, "dram_write_gbps": 113.14, "l1_hit_pct": 75.2, "l2_hit_pct": 83.06}}, {"host_received_ns": 4000000000, "measurements": {"tensor_tflops": 506.86, "cuda_fp32_tflops": 22.15, "dram_read_gbps": 322.29, "dram_write_gbps": 106.1, "l1_hit_pct": 71.4, "l2_hit_pct": 80.82}}, {"host_received_ns": 4500000000, "measurements": {"tensor_tflops": 494.0, "cuda_fp32_tflops": 21.0, "dram_read_gbps": 318.0, "dram_write_gbps": 103.5, "l1_hit_pct": 70.0, "l2_hit_pct": 80.0}}, {"host_received_ns": 5000000000, "measurements": {"tensor_tflops": 507.52, "cuda_fp32_tflops": 22.21, "dram_read_gbps": 322.51, "dram_write_gbps": 106.23, "l1_hit_pct": 71.47, "l2_hit_pct": 80.87}}, {"host_received_ns": 5500000000, "measurements": {"tensor_tflops": 542.84, "cuda_fp32_tflops": 25.38, "dram_read_gbps": 334.28, "dram_write_gbps": 113.36, "l1_hit_pct": 75.32, "l2_hit_pct": 83.13}}, {"host_received_ns": 6000000000, "measurements": {"tensor_tflops": 588.02, "cuda_fp32_tflops": 29.44, "dram_read_gbps": 349.34, "dram_write_gbps": 122.48, "l1_hit_pct": 80.25, "l2_hit_pct": 86.03}}, {"host_received_ns": 6500000000, "measurements": {"tensor_tflops": 627.78, "cuda_fp32_tflops": 33.01, "dram_read_gbps": 362.59, "dram_write_gbps": 130.51, "l1_hit_pct": 84.58, "l2_hit_pct": 88.58}}, {"host_received_ns": 7000000000, "measurements": {"tensor_tflops": 648.68, "cuda_fp32_tflops": 34.88, "dram_read_gbps": 369.56, "dram_write_gbps": 134.73, "l1_hit_pct": 86.86, "l2_hit_pct": 89.92}}, {"host_received_ns": 7500000000, "measurements": {"tensor_tflops": 643.66, "cuda_fp32_tflops": 34.43, "dram_read_gbps": 367.89, "dram_write_gbps": 133.72, "l1_hit_pct": 86.31, "l2_hit_pct": 89.59}}, {"host_received_ns": 8000000000, "measurements": {"tensor_tflops": 614.4, "cuda_fp32_tflops": 31.81, "dram_read_gbps": 358.13, "dram_write_gbps": 127.81, "l1_hit_pct": 83.12, "l2_hit_pct": 87.72}}, {"host_received_ns": 8500000000, "measurements": {"tensor_tflops": 570.81, "cuda_fp32_tflops": 27.89, "dram_read_gbps": 343.6, "dram_write_gbps": 119.01, "l1_hit_pct": 78.37, "l2_hit_pct": 84.92}}, {"host_received_ns": 9000000000, "measurements": {"tensor_tflops": 527.62, "cuda_fp32_tflops": 24.02, "dram_read_gbps": 329.21, "dram_write_gbps": 110.29, "l1_hit_pct": 73.66, "l2_hit_pct": 82.16}}, {"host_received_ns": 9500000000, "measurements": {"tensor_tflops": 499.44, "cuda_fp32_tflops": 21.49, "dram_read_gbps": 319.81, "dram_write_gbps": 104.6, "l1_hit_pct": 70.59, "l2_hit_pct": 80.35}}, {"host_received_ns": 10000000000, "measurements": {"tensor_tflops": 495.79, "cuda_fp32_tflops": 21.16, "dram_read_gbps": 318.6, "dram_write_gbps": 103.86, "l1_hit_pct": 70.19, "l2_hit_pct": 80.11}}, {"host_received_ns": 10500000000, "measurements": {"tensor_tflops": 517.91, "cuda_fp32_tflops": 23.15, "dram_read_gbps": 325.97, "dram_write_gbps": 108.33, "l1_hit_pct": 72.61, "l2_hit_pct": 81.53}}, {"host_received_ns": 11000000000, "measurements": {"tensor_tflops": 558.31, "cuda_fp32_tflops": 26.77, "dram_read_gbps": 339.44, "dram_write_gbps": 116.49, "l1_hit_pct": 77.01, "l2_hit_pct": 84.12}}, {"host_received_ns": 11500000000, "measurements": {"tensor_tflops": 603.35, "cuda_fp32_tflops": 30.81, "dram_read_gbps": 354.45, "dram_write_gbps": 125.58, "l1_hit_pct": 81.92, "l2_hit_pct": 87.01}}, {"host_received_ns": 12000000000, "measurements": {"tensor_tflops": 637.79, "cuda_fp32_tflops": 33.9, "dram_read_gbps": 365.93, "dram_write_gbps": 132.53, "l1_hit_pct": 85.67, "l2_hit_pct": 89.22}}, {"host_received_ns": 12500000000, "measurements": {"tensor_tflops": 649.98, "cuda_fp32_tflops": 35.0, "dram_read_gbps": 369.99, "dram_write_gbps": 135.0, "l1_hit_pct": 87.0, "l2_hit_pct": 90.0}}, {"host_received_ns": 13000000000, "measurements": {"tensor_tflops": 635.81, "cuda_fp32_tflops": 33.73, "dram_read_gbps": 365.27, "dram_write_gbps": 132.13, "l1_hit_pct": 85.45, "l2_hit_pct": 89.09}}, {"host_received_ns": 13500000000, "measurements": {"tensor_tflops": 600.06, "cuda_fp32_tflops": 30.52, "dram_read_gbps": 353.35, "dram_write_gbps": 124.92, "l1_hit_pct": 81.56, "l2_hit_pct": 86.8}}, {"host_received_ns": 14000000000, "measurements": {"tensor_tflops": 554.82, "cuda_fp32_tflops": 26.46, "dram_read_gbps": 338.27, "dram_write_gbps": 115.78, "l1_hit_pct": 76.63, "l2_hit_pct": 83.9}}, {"host_received_ns": 14500000000, "measurements": {"tensor_tflops": 515.4, "cuda_fp32_tflops": 22.92, "dram_read_gbps": 325.13, "dram_write_gbps": 107.82, "l1_hit_pct": 72.33, "l2_hit_pct": 81.37}}, {"host_received_ns": 15000000000, "measurements": {"tensor_tflops": 495.11, "cuda_fp32_tflops": 21.1, "dram_read_gbps": 318.37, "dram_write_gbps": 103.72, "l1_hit_pct": 70.12, "l2_hit_pct": 80.07}}, {"host_received_ns": 15500000000, "measurements": {"tensor_tflops": 500.82, "cuda_fp32_tflops": 21.61, "dram_read_gbps": 320.27, "dram_write_gbps": 104.88, "l1_hit_pct": 70.74, "l2_hit_pct": 80.44}}, {"host_received_ns": 16000000000, "measurements": {"tensor_tflops": 530.6, "cuda_fp32_tflops": 24.28, "dram_read_gbps": 330.2, "dram_write_gbps": 110.89, "l1_hit_pct": 73.99, "l2_hit_pct": 82.35}}, {"host_received_ns": 16500000000, "measurements": {"tensor_tflops": 574.37, "cuda_fp32_tflops": 28.21, "dram_read_gbps": 344.79, "dram_write_gbps": 119.73, "l1_hit_pct": 78.76, "l2_hit_pct": 85.15}}, {"host_received_ns": 17000000000, "measurements": {"tensor_tflops": 617.35, "cuda_fp32_tflops": 32.07, "dram_read_gbps": 359.12, "dram_write_gbps": 128.41, "l1_hit_pct": 83.44, "l2_hit_pct": 87.91}}, {"host_received_ns": 17500000000, "measurements": {"tensor_tflops": 644.99, "cuda_fp32_tflops": 34.55, "dram_read_gbps": 368.33, "dram_write_gbps": 133.99, "l1_hit_pct": 86.45, "l2_hit_pct": 89.68}}, {"host_received_ns": 18000000000, "measurements": {"tensor_tflops": 647.95, "cuda_fp32_tflops": 34.82, "dram_read_gbps": 369.32, "dram_write_gbps": 134.59, "l1_hit_pct": 86.78, "l2_hit_pct": 89.87}}, {"host_received_ns": 18500000000, "measurements": {"tensor_tflops": 4.81, "cuda_fp32_tflops": 11.24, "dram_read_gbps": 1804.43, "dram_write_gbps": 847.77, "l1_hit_pct": 31.57, "l2_hit_pct": 46.41}}, {"host_received_ns": 19000000000, "measurements": {"tensor_tflops": 4.5, "cuda_fp32_tflops": 9.99, "dram_read_gbps": 1713.08, "dram_write_gbps": 770.12, "l1_hit_pct": 29.22, "l2_hit_pct": 43.8}}, {"host_received_ns": 19500000000, "measurements": {"tensor_tflops": 4.15, "cuda_fp32_tflops": 8.6, "dram_read_gbps": 1612.23, "dram_write_gbps": 684.4, "l1_hit_pct": 26.63, "l2_hit_pct": 40.92}}, {"host_received_ns": 20000000000, "measurements": {"tensor_tflops": 3.89, "cuda_fp32_tflops": 7.56, "dram_read_gbps": 1535.99, "dram_write_gbps": 619.59, "l1_hit_pct": 24.67, "l2_hit_pct": 38.74}}, {"host_received_ns": 20500000000, "measurements": {"tensor_tflops": 3.8, "cuda_fp32_tflops": 7.2, "dram_read_gbps": 1510.13, "dram_write_gbps": 597.61, "l1_hit_pct": 24.0, "l2_hit_pct": 38.0}}, {"host_received_ns": 21000000000, "measurements": {"tensor_tflops": 3.91, "cuda_fp32_tflops": 7.66, "dram_read_gbps": 1543.39, "dram_write_gbps": 625.89, "l1_hit_pct": 24.86, "l2_hit_pct": 38.95}}, {"host_received_ns": 21500000000, "measurements": {"tensor_tflops": 4.19, "cuda_fp32_tflops": 8.77, "dram_read_gbps": 1624.54, "dram_write_gbps": 694.86, "l1_hit_pct": 26.95, "l2_hit_pct": 41.27}}, {"host_received_ns": 22000000000, "measurements": {"tensor_tflops": 4.54, "cuda_fp32_tflops": 10.16, "dram_read_gbps": 1726.13, "dram_write_gbps": 781.21, "l1_hit_pct": 29.56, "l2_hit_pct": 44.18}}, {"host_received_ns": 22500000000, "measurements": {"tensor_tflops": 4.84, "cuda_fp32_tflops": 11.37, "dram_read_gbps": 1813.81, "dram_write_gbps": 855.74, "l1_hit_pct": 31.81, "l2_hit_pct": 46.68}}, {"host_received_ns": 23000000000, "measurements": {"tensor_tflops": 4.99, "cuda_fp32_tflops": 11.97, "dram_read_gbps": 1857.94, "dram_write_gbps": 893.25, "l1_hit_pct": 32.95, "l2_hit_pct": 47.94}}, {"host_received_ns": 23500000000, "measurements": {"tensor_tflops": 4.94, "cuda_fp32_tflops": 11.78, "dram_read_gbps": 1843.59, "dram_write_gbps": 881.06, "l1_hit_pct": 32.58, "l2_hit_pct": 47.53}}, {"host_received_ns": 24000000000, "measurements": {"tensor_tflops": 4.71, "cuda_fp32_tflops": 10.84, "dram_read_gbps": 1775.62, "dram_write_gbps": 823.28, "l1_hit_pct": 30.83, "l2_hit_pct": 45.59}}, {"host_received_ns": 24500000000, "measurements": {"tensor_tflops": 4.37, "cuda_fp32_tflops": 9.49, "dram_read_gbps": 1677.01, "dram_write_gbps": 739.46, "l1_hit_pct": 28.29, "l2_hit_pct": 42.77}}, {"host_received_ns": 25000000000, "measurements": {"tensor_tflops": 4.04, "cuda_fp32_tflops": 8.18, "dram_read_gbps": 1581.1, "dram_write_gbps": 657.94, "l1_hit_pct": 25.83, "l2_hit_pct": 40.03}}, {"host_received_ns": 25500000000, "measurements": {"tensor_tflops": 3.84, "cuda_fp32_tflops": 7.34, "dram_read_gbps": 1520.32, "dram_write_gbps": 606.27, "l1_hit_pct": 24.27, "l2_hit_pct": 38.29}}, {"host_received_ns": 26000000000, "measurements": {"tensor_tflops": 3.82, "cuda_fp32_tflops": 7.27, "dram_read_gbps": 1515.22, "dram_write_gbps": 601.94, "l1_hit_pct": 24.13, "l2_hit_pct": 38.15}}, {"host_received_ns": 26500000000, "measurements": {"tensor_tflops": 4.0, "cuda_fp32_tflops": 7.99, "dram_read_gbps": 1567.53, "dram_write_gbps": 646.4, "l1_hit_pct": 25.48, "l2_hit_pct": 39.64}}, {"host_received_ns": 27000000000, "measurements": {"tensor_tflops": 4.31, "cuda_fp32_tflops": 9.25, "dram_read_gbps": 1659.55, "dram_write_gbps": 724.62, "l1_hit_pct": 27.85, "l2_hit_pct": 42.27}}, {"host_received_ns": 27500000000, "measurements": {"tensor_tflops": 4.66, "cuda_fp32_tflops": 10.63, "dram_read_gbps": 1760.18, "dram_write_gbps": 810.16, "l1_hit_pct": 30.43, "l2_hit_pct": 45.15}}, {"host_received_ns": 28000000000, "measurements": {"tensor_tflops": 4.92, "cuda_fp32_tflops": 11.66, "dram_read_gbps": 1835.39, "dram_write_gbps": 874.08, "l1_hit_pct": 32.37, "l2_hit_pct": 47.3}}, {"host_received_ns": 28500000000, "measurements": {"tensor_tflops": 5.0, "cuda_fp32_tflops": 12.0, "dram_read_gbps": 1859.75, "dram_write_gbps": 894.79, "l1_hit_pct": 32.99, "l2_hit_pct": 47.99}}, {"host_received_ns": 29000000000, "measurements": {"tensor_tflops": 4.88, "cuda_fp32_tflops": 11.52, "dram_read_gbps": 1825.02, "dram_write_gbps": 865.27, "l1_hit_pct": 32.1, "l2_hit_pct": 47.0}}, {"host_received_ns": 29500000000, "measurements": {"tensor_tflops": 4.6, "cuda_fp32_tflops": 10.39, "dram_read_gbps": 1742.95, "dram_write_gbps": 795.51, "l1_hit_pct": 29.99, "l2_hit_pct": 44.66}}, {"host_received_ns": 30000000000, "measurements": {"tensor_tflops": 4.25, "cuda_fp32_tflops": 9.0, "dram_read_gbps": 1641.28, "dram_write_gbps": 709.09, "l1_hit_pct": 27.38, "l2_hit_pct": 41.75}}, {"host_received_ns": 30500000000, "measurements": {"tensor_tflops": 3.95, "cuda_fp32_tflops": 7.81, "dram_read_gbps": 1554.4, "dram_write_gbps": 635.24, "l1_hit_pct": 25.14, "l2_hit_pct": 39.27}}, {"host_received_ns": 31000000000, "measurements": {"tensor_tflops": 3.81, "cuda_fp32_tflops": 7.22, "dram_read_gbps": 1511.67, "dram_write_gbps": 598.92, "l1_hit_pct": 24.04, "l2_hit_pct": 38.05}}, {"host_received_ns": 31500000000, "measurements": {"tensor_tflops": 3.86, "cuda_fp32_tflops": 7.44, "dram_read_gbps": 1527.55, "dram_write_gbps": 612.42, "l1_hit_pct": 24.45, "l2_hit_pct": 38.5}}, {"host_received_ns": 32000000000, "measurements": {"tensor_tflops": 4.1, "cuda_fp32_tflops": 8.39, "dram_read_gbps": 1596.67, "dram_write_gbps": 671.17, "l1_hit_pct": 26.23, "l2_hit_pct": 40.48}}, {"host_received_ns": 32500000000, "measurements": {"tensor_tflops": 4.44, "cuda_fp32_tflops": 9.75, "dram_read_gbps": 1695.65, "dram_write_gbps": 755.3, "l1_hit_pct": 28.77, "l2_hit_pct": 43.3}}, {"host_received_ns": 33000000000, "measurements": {"tensor_tflops": 4.76, "cuda_fp32_tflops": 11.05, "dram_read_gbps": 1791.03, "dram_write_gbps": 836.38, "l1_hit_pct": 31.23, "l2_hit_pct": 46.03}}, {"host_received_ns": 33500000000, "measurements": {"tensor_tflops": 4.97, "cuda_fp32_tflops": 11.87, "dram_read_gbps": 1850.56, "dram_write_gbps": 886.98, "l1_hit_pct": 32.76, "l2_hit_pct": 47.73}}, {"host_received_ns": 34000000000, "measurements": {"tensor_tflops": 4.98, "cuda_fp32_tflops": 11.92, "dram_read_gbps": 1854.11, "dram_write_gbps": 890.0, "l1_hit_pct": 32.85, "l2_hit_pct": 47.83}}, {"host_received_ns": 34500000000, "measurements": {"tensor_tflops": 623.47, "cuda_fp32_tflops": 32.62, "dram_read_gbps": 361.16, "dram_write_gbps": 129.64, "l1_hit_pct": 84.11, "l2_hit_pct": 88.3}}, {"host_received_ns": 35000000000, "measurements": {"tensor_tflops": 582.17, "cuda_fp32_tflops": 28.91, "dram_read_gbps": 347.39, "dram_write_gbps": 121.3, "l1_hit_pct": 79.61, "l2_hit_pct": 85.65}}, {"host_received_ns": 35500000000, "measurements": {"tensor_tflops": 537.42, "cuda_fp32_tflops": 24.9, "dram_read_gbps": 332.47, "dram_write_gbps": 112.27, "l1_hit_pct": 74.73, "l2_hit_pct": 82.78}}, {"host_received_ns": 36000000000, "measurements": {"tensor_tflops": 504.37, "cuda_fp32_tflops": 21.93, "dram_read_gbps": 321.46, "dram_write_gbps": 105.59, "l1_hit_pct": 71.13, "l2_hit_pct": 80.66}}, {"host_received_ns": 36500000000, "measurements": {"tensor_tflops": 494.18, "cuda_fp32_tflops": 21.02, "dram_read_gbps": 318.06, "dram_write_gbps": 103.54, "l1_hit_pct": 70.02, "l2_hit_pct": 80.01}}, {"host_received_ns": 37000000000, "measurements": {"tensor_tflops": 510.31, "cuda_fp32_tflops": 22.46, "dram_read_gbps": 323.44, "dram_write_gbps": 106.79, "l1_hit_pct": 71.78, "l2_hit_pct": 81.05}}, {"host_received_ns": 37500000000, "measurements": {"tensor_tflops": 547.29, "cuda_fp32_tflops": 25.78, "dram_read_gbps": 335.76, "dram_write_gbps": 114.26, "l1_hit_pct": 75.81, "l2_hit_pct": 83.42}}, {"host_received_ns": 38000000000, "measurements": {"tensor_tflops": 592.63, "cuda_fp32_tflops": 29.85, "dram_read_gbps": 350.88, "dram_write_gbps": 123.42, "l1_hit_pct": 80.75, "l2_hit_pct": 86.32}}, {"host_received_ns": 38500000000, "measurements": {"tensor_tflops": 630.99, "cuda_fp32_tflops": 33.29, "dram_read_gbps": 363.66, "dram_write_gbps": 131.16, "l1_hit_pct": 84.93, "l2_hit_pct": 88.78}}, {"host_received_ns": 39000000000, "measurements": {"tensor_tflops": 649.41, "cuda_fp32_tflops": 34.95, "dram_read_gbps": 369.8, "dram_write_gbps": 134.88, "l1_hit_pct": 86.94, "l2_hit_pct": 89.96}}, {"host_received_ns": 39500000000, "measurements": {"tensor_tflops": 641.65, "cuda_fp32_tflops": 34.25, "dram_read_gbps": 367.22, "dram_write_gbps": 133.31, "l1_hit_pct": 86.09, "l2_hit_pct": 89.46}}, {"host_received_ns": 40000000000, "measurements": {"tensor_tflops": 610.34, "cuda_fp32_tflops": 31.44, "dram_read_gbps": 356.78, "dram_write_gbps": 126.99, "l1_hit_pct": 82.68, "l2_hit_pct": 87.46}}, {"host_received_ns": 40500000000, "measurements": {"tensor_tflops": 566.07, "cuda_fp32_tflops": 27.47, "dram_read_gbps": 342.02, "dram_write_gbps": 118.05, "l1_hit_pct": 77.85, "l2_hit_pct": 84.62}}, {"host_received_ns": 41000000000, "measurements": {"tensor_tflops": 523.8, "cuda_fp32_tflops": 23.67, "dram_read_gbps": 327.93, "dram_write_gbps": 109.52, "l1_hit_pct": 73.25, "l2_hit_pct": 81.91}}, {"host_received_ns": 41500000000, "measurements": {"tensor_tflops": 497.83, "cuda_fp32_tflops": 21.34, "dram_read_gbps": 319.28, "dram_write_gbps": 104.27, "l1_hit_pct": 70.42, "l2_hit_pct": 80.25}}, {"host_received_ns": 42000000000, "measurements": {"tensor_tflops": 496.94, "cuda_fp32_tflops": 21.26, "dram_read_gbps": 318.98, "dram_write_gbps": 104.09, "l1_hit_pct": 70.32, "l2_hit_pct": 80.19}}, {"host_received_ns": 42500000000, "measurements": {"tensor_tflops": 521.42, "cuda_fp32_tflops": 23.46, "dram_read_gbps": 327.14, "dram_write_gbps": 109.04, "l1_hit_pct": 72.99, "l2_hit_pct": 81.76}}, {"host_received_ns": 43000000000, "measurements": {"tensor_tflops": 563.01, "cuda_fp32_tflops": 27.19, "dram_read_gbps": 341.0, "dram_write_gbps": 117.44, "l1_hit_pct": 77.52, "l2_hit_pct": 84.42}}, {"host_received_ns": 43500000000, "measurements": {"tensor_tflops": 607.64, "cuda_fp32_tflops": 31.2, "dram_read_gbps": 355.88, "dram_write_gbps": 126.45, "l1_hit_pct": 82.38, "l2_hit_pct": 87.28}}, {"host_received_ns": 44000000000, "measurements": {"tensor_tflops": 640.22, "cuda_fp32_tflops": 34.12, "dram_read_gbps": 366.74, "dram_write_gbps": 133.02, "l1_hit_pct": 85.93, "l2_hit_pct": 89.37}}, {"host_received_ns": 44500000000, "measurements": {"tensor_tflops": 649.73, "cuda_fp32_tflops": 34.98, "dram_read_gbps": 1859.39, "dram_write_gbps": 894.48, "l1_hit_pct": 86.97, "l2_hit_pct": 89.98}}, {"host_received_ns": 45000000000, "measurements": {"tensor_tflops": 632.96, "cuda_fp32_tflops": 33.47, "dram_read_gbps": 1821.76, "dram_write_gbps": 862.5, "l1_hit_pct": 85.14, "l2_hit_pct": 88.91}}, {"host_received_ns": 45500000000, "measurements": {"tensor_tflops": 595.58, "cuda_fp32_tflops": 30.12, "dram_read_gbps": 1737.9, "dram_write_gbps": 791.21, "l1_hit_pct": 81.07, "l2_hit_pct": 86.51}}, {"host_received_ns": 46000000000, "measurements": {"tensor_tflops": 550.23, "cuda_fp32_tflops": 26.05, "dram_read_gbps": 1636.15, "dram_write_gbps": 704.72, "l1_hit_pct": 76.13, "l2_hit_pct": 83.6}}, {"host_received_ns": 46500000000, "measurements": {"tensor_tflops": 512.24, "cuda_fp32_tflops": 22.64, "dram_read_gbps": 1550.91, "dram_write_gbps": 632.28, "l1_hit_pct": 71.99, "l2_hit_pct": 81.17}}, {"host_received_ns": 47000000000, "measurements": {"tensor_tflops": 494.45, "cuda_fp32_tflops": 21.04, "dram_read_gbps": 1511.02, "dram_write_gbps": 598.36, "l1_hit_pct": 70.05, "l2_hit_pct": 80.03}}, {"host_received_ns": 47500000000, "measurements": {"tensor_tflops": 502.89, "cuda_fp32_tflops": 21.8, "dram_read_gbps": 1529.95, "dram_write_gbps": 614.46, "l1_hit_pct": 70.97, "l2_hit_pct": 80.57}}, {"host_received_ns": 48000000000, "measurements": {"tensor_tflops": 534.7, "cuda_fp32_tflops": 24.65, "dram_read_gbps": 1601.31, "dram_write_gbps": 675.11, "l1_hit_pct": 74.43, "l2_hit_pct": 82.61}}, {"host_received_ns": 48500000000, "measurements": {"tensor_tflops": 579.11, "cuda_fp32_tflops": 28.64, "dram_read_gbps": 1700.96, "dram_write_gbps": 759.82, "l1_hit_pct": 79.28, "l2_hit_pct": 85.46}}, {"host_received_ns": 49000000000, "measurements": {"tensor_tflops": 621.13, "cuda_fp32_tflops": 32.41, "dram_read_gbps": 1795.22, "dram_write_gbps": 839.94, "l1_hit_pct": 83.85, "l2_hit_pct": 88.15}}, {"host_received_ns": 49500000000, "measurements": {"tensor_tflops": 646.53, "cuda_fp32_tflops": 34.69, "dram_read_gbps": 1852.21, "dram_write_gbps": 888.38, "l1_hit_pct": 86.62, "l2_hit_pct": 89.78}}, {"host_received_ns": 50000000000, "measurements": {"tensor_tflops": 646.73, "cuda_fp32_tflops": 34.71, "dram_read_gbps": 1852.67, "dram_write_gbps": 888.77, "l1_hit_pct": 86.64, "l2_hit_pct": 89.79}}, {"host_received_ns": 50500000000, "measurements": {"tensor_tflops": 621.67, "cuda_fp32_tflops": 32.46, "dram_read_gbps": 1796.43, "dram_write_gbps": 840.96, "l1_hit_pct": 83.91, "l2_hit_pct": 88.18}}, {"host_received_ns": 51000000000, "measurements": {"tensor_tflops": 579.81, "cuda_fp32_tflops": 28.7, "dram_read_gbps": 1702.52, "dram_write_gbps": 761.14, "l1_hit_pct": 79.35, "l2_hit_pct": 85.5}}, {"host_received_ns": 51500000000, "measurements": {"tensor_tflops": 535.31, "cuda_fp32_tflops": 24.71, "dram_read_gbps": 1602.68, "dram_write_gbps": 676.28, "l1_hit_pct": 74.5, "l2_hit_pct": 82.65}}, {"host_received_ns": 52000000000, "measurements": {"tensor_tflops": 503.22, "cuda_fp32_tflops": 21.83, "dram_read_gbps": 1530.68, "dram_write_gbps": 615.08, "l1_hit_pct": 71.0, "l2_hit_pct": 80.59}}, {"host_received_ns": 52500000000, "measurements": {"tensor_tflops": 494.38, "cuda_fp32_tflops": 21.03, "dram_read_gbps": 1510.86, "dram_write_gbps": 598.23, "l1_hit_pct": 70.04, "l2_hit_pct": 80.02}}, {"host_received_ns": 53000000000, "measurements": {"tensor_tflops": 511.79, "cuda_fp32_tflops": 22.6, "dram_read_gbps": 1549.91, "dram_write_gbps": 631.43, "l1_hit_pct": 71.94, "l2_hit_pct": 81.14}}, {"host_received_ns": 53500000000, "measurements": {"tensor_tflops": 549.56, "cuda_fp32_tflops": 25.99, "dram_read_gbps": 1634.65, "dram_write_gbps": 703.45, "l1_hit_pct": 76.05, "l2_hit_pct": 83.56}}, {"host_received_ns": 54000000000, "measurements": {"tensor_tflops": 594.91, "cuda_fp32_tflops": 30.06, "dram_read_gbps": 1736.41, "dram_write_gbps": 789.95, "l1_hit_pct": 81.0, "l2_hit_pct": 86.47}}, {"host_received_ns": 54500000000, "measurements": {"tensor_tflops": 632.52, "cuda_fp32_tflops": 33.43, "dram_read_gbps": 1820.78, "dram_write_gbps": 861.67, "l1_hit_pct": 85.1, "l2_hit_pct": 88.88}}, {"host_received_ns": 55000000000, "measurements": {"tensor_tflops": 649.67, "cuda_fp32_tflops": 34.97, "dram_read_gbps": 1859.25, "dram_write_gbps": 894.36, "l1_hit_pct": 86.96, "l2_hit_pct": 89.98}}, {"host_received_ns": 55500000000, "measurements": {"tensor_tflops": 640.55, "cuda_fp32_tflops": 34.15, "dram_read_gbps": 1838.8, "dram_write_gbps": 876.98, "l1_hit_pct": 85.97, "l2_hit_pct": 89.39}}, {"host_received_ns": 56000000000, "measurements": {"tensor_tflops": 608.26, "cuda_fp32_tflops": 31.25, "dram_read_gbps": 1766.35, "dram_write_gbps": 815.39, "l1_hit_pct": 82.45, "l2_hit_pct": 87.32}}, {"host_received_ns": 56500000000, "measurements": {"tensor_tflops": 563.7, "cuda_fp32_tflops": 27.26, "dram_read_gbps": 1666.39, "dram_write_gbps": 730.43, "l1_hit_pct": 77.6, "l2_hit_pct": 84.47}}, {"host_received_ns": 57000000000, "measurements": {"tensor_tflops": 521.96, "cuda_fp32_tflops": 23.51, "dram_read_gbps": 1572.72, "dram_write_gbps": 650.82, "l1_hit_pct": 73.05, "l2_hit_pct": 81.79}}, {"host_received_ns": 57500000000, "measurements": {"tensor_tflops": 497.13, "cuda_fp32_tflops": 21.28, "dram_read_gbps": 1517.02, "dram_write_gbps": 603.47, "l1_hit_pct": 70.34, "l2_hit_pct": 80.2}}, {"host_received_ns": 58000000000, "measurements": {"tensor_tflops": 497.62, "cuda_fp32_tflops": 21.32, "dram_read_gbps": 1518.12, "dram_write_gbps": 604.4, "l1_hit_pct": 70.39, "l2_hit_pct": 80.23}}, {"host_received_ns": 58500000000, "measurements": {"tensor_tflops": 523.26, "cuda_fp32_tflops": 23.63, "dram_read_gbps": 1575.64, "dram_write_gbps": 653.29, "l1_hit_pct": 73.19, "l2_hit_pct": 81.88}}, {"host_received_ns": 59000000000, "measurements": {"tensor_tflops": 565.37, "cuda_fp32_tflops": 27.41, "dram_read_gbps": 1670.14, "dram_write_gbps": 733.62, "l1_hit_pct": 77.78, "l2_hit_pct": 84.58}}, {"host_received_ns": 59500000000, "measurements": {"tensor_tflops": 609.73, "cuda_fp32_tflops": 31.39, "dram_read_gbps": 1769.66, "dram_write_gbps": 818.21, "l1_hit_pct": 82.61, "l2_hit_pct": 87.42}}, {"host_received_ns": 60000000000, "measurements": {"tensor_tflops": 641.34, "cuda_fp32_tflops": 34.22, "dram_read_gbps": 1840.56, "dram_write_gbps": 878.48, "l1_hit_pct": 86.06, "l2_hit_pct": 89.44}}]}</script>
+<script>
+const $ = id => document.getElementById(id);
+const path = location.pathname;
+const reportData = $('report-data').textContent;
+const usedByNode = !reportData && path.startsWith('/gpu/');
+const metricsURL = usedByNode ? '/api/v1/gpus/' + path.slice(5) : '';
+$('back').hidden = !usedByNode;
+const compute = [
+  ['tensor_tflops', 'Tensor Core (provisional)', 'TFLOP/s', '#7cc7fc'],
+  ['cuda_fp32_tflops', 'CUDA FP32', 'TFLOP/s', '#d0a5ef']
+];
+const dram = [
+  ['dram_read_gbps', 'DRAM Read', 'GB/s', '#70e0b8'],
+  ['dram_write_gbps', 'DRAM Write', 'GB/s', '#eca77a']
+];
+const cache = [
+  ['l1_hit_pct', 'L1/TEX Hit', '%', '#7cc7fc'],
+  ['l2_hit_pct', 'L2 Hit', '%', '#f5d18d']
+];
+const format = (value, unit) => Number.isFinite(value)
+  ? value.toLocaleString('en-US', {maximumFractionDigits: 2}) + (unit ? ' ' + unit : '')
+  : 'N/A';
+
+function createCards(group, fields) {
+  return fields.map(([key, label, unit]) => {
+    const card = document.createElement('div');
+    const title = document.createElement('small');
+    const value = document.createElement('b');
+    card.className = 'card';
+    title.textContent = label;
+    value.textContent = 'N/A';
+    card.append(title, value);
+    $(group).append(card);
+    return [key, value, unit];
+  });
+}
+const computeCards = createCards('compute-cards', compute);
+const memoryCards = createCards('memory-cards', [...dram, ...cache, ['peak', 'DRAM Bandwidth Peak', 'GB/s'], ['memory_mib', 'Total VRAM', 'MiB']]);
+function updateCards(cards, values) {
+  for (const [key, element, unit] of cards) element.textContent = format(values[key], unit);
+}
+
+function createChart(group, title, lines, fixedMax) {
+  const box = document.createElement('div');
+  const caption = document.createElement('small');
+  const canvas = document.createElement('canvas');
+  canvas.className = 'chart';
+  canvas.setAttribute('role', 'img');
+  canvas.setAttribute('aria-label', title);
+  caption.textContent = title;
+  for (const [, label, , color] of lines) {
+    const key = document.createElement('span');
+    key.className = 'key';
+    key.style.backgroundColor = color;
+    caption.append(key, label);
+  }
+  box.append(caption, canvas);
+  $(group).append(box);
+  return {canvas, lines, fixedMax};
+}
+const charts = [
+  createChart('compute-charts', 'Recent compute · TFLOP/s', compute),
+  createChart('memory-charts', 'Recent DRAM · GB/s', dram),
+  createChart('memory-charts', 'Recent cache hit rate · %', cache, 100)
+];
+
+function draw({canvas, lines, fixedMax}, samples) {
+  const {clientWidth: width, clientHeight: height} = canvas;
+  if (width <= 60 || height <= 40) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const left = 45, right = width - 12, top = 12, bottom = height - 24;
+  const values = samples.flatMap(s => lines.map(([key]) => s.measurements?.[key]).filter(Number.isFinite));
+  const max = fixedMax || values.reduce((max, value) => Math.max(max, value), 1) * 1.14;
+  ctx.font = '11px system-ui';
+  ctx.fillStyle = '#9fb0c5';
+  ctx.textAlign = 'right';
+  for (let tick = 0; tick <= 4; tick++) {
+    const y = top + (bottom - top) * tick / 4;
+    ctx.strokeStyle = '#34445a';
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(right, y);
+    ctx.stroke();
+    ctx.fillText(format(max * (4 - tick) / 4), left - 5, y + 4);
+  }
+  const stamp = (sample) => sample.gpu_end_ns ?? sample.host_received_ns;
+  const first = samples.length && stamp(samples[0]);
+  const last = samples.length && stamp(samples.at(-1));
+  const timed = Number.isFinite(first) && Number.isFinite(last) && last > first;
+  for (const [key, , , color] of lines) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    let previous = null;
+    samples.forEach((sample, i) => {
+      const value = sample.measurements?.[key];
+      if (!Number.isFinite(value)) {
+        previous = null;
+        return;
+      }
+      const progress = timed && Number.isFinite(stamp(sample))
+        ? (stamp(sample) - first) / (last - first) : i / Math.max(1, samples.length - 1);
+      const x = left + (right - left) * progress;
+      const y = bottom - value / max * (bottom - top);
+      ctx.beginPath();
+      if (previous) {
+        ctx.moveTo(...previous);
+        ctx.lineTo(x, y);
+      } else {
+        ctx.arc(x, y, 2, 0, 2 * Math.PI);
+      }
+      ctx.stroke();
+      previous = [x, y];
+    });
+  }
+  ctx.textAlign = 'left';
+  ctx.fillText(`${samples.length} points${timed ? ` · ${format((last - first) / 1e9)} s` : ''}`, left, bottom + 17);
+}
+
+function updatePrecision(comparisons) {
+  const rows = Object.entries(comparisons).map(([key, record]) =>
+    [key, format(record.measured, record.unit) + (record.counter_unit_verified === false && Number.isFinite(record.measured) ? ' (provisional)' : ''), format(record.peak, record.unit) + (record.peak_origin === 'DERIVED' ? ' (derived)' : ''), format(record.attainment_pct, '%')]
+  );
+  if (!rows.length) rows.push(['No precision metrics available', 'N/A', 'N/A', 'N/A']);
+  $('precision').replaceChildren(...rows.map(values => {
+    const row = document.createElement('tr');
+    for (const value of values) {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.append(cell);
+    }
+    return row;
+  }));
+}
+
+async function getJSON(url) {
+  const response = await fetch(url, {cache: 'no-store'});
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+let latestSamples = [];
+function render(data, samples) {
+  const {gpu, collector} = data;
+  $('title').textContent = gpu.model || (gpu.cuda_index == null ? 'GPU Detail' : `GPU ${gpu.cuda_index} Detail`);
+  $('meta').textContent = [
+    gpu.uuid, gpu.pci_bus_id && 'PCI ' + gpu.pci_bus_id, collector?.chip,
+    data.sku || data.peak_status, collector?.status === 'PROFILER_BUSY' ? 'Another profiler is using the counters' : collector?.status || 'UNKNOWN'
+  ].filter(Boolean).join(' · ');
+  $('error').textContent = collector?.last_error || '';
+  updateCards(computeCards, data.measurements);
+  updateCards(memoryCards, {
+    ...data.measurements, peak: data.memory_bandwidth_peak_gbps, memory_mib: gpu.memory_mib
+  });
+  updatePrecision(data.compute);
+  latestSamples = samples;
+  for (const chart of charts) draw(chart, latestSamples);
+  $('diagnostics').textContent = JSON.stringify({
+    collector, peak_source: data.peak_source, raw_metrics: data.raw_metrics,
+    last_host_received_ns: data.last_host_received_ns
+  }, null, 2);
+}
+
+async function refresh() {
+  try {
+    const [data, history] = usedByNode
+      ? await Promise.all([getJSON(metricsURL + '/metrics'), getJSON(metricsURL + '/history?view=chart')])
+      : [await getJSON('/api/detail?view=chart')];
+    render(data, (history || data).samples);
+  } catch (error) {
+    $('error').textContent = 'Dashboard disconnected: ' + error.message;
+  } finally {
+    setTimeout(refresh, usedByNode ? 2000 : 700);
+  }
+}
+window.addEventListener('resize', () => charts.forEach(chart => draw(chart, latestSamples)));
+if (reportData) {
+  const report = JSON.parse(reportData);
+  render(report, report.samples);
+} else {
+  refresh();
+}
+</script>
+</body>
+</html>
