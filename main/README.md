@@ -105,6 +105,15 @@ Hopper and Blackwell compute records include `value_origin`. Derived records car
 
 Driver names and peak references come from the [NVIDIA driver product list](https://download.nvidia.com/solaris/580.142/README/supportedchips.html) and [A100 datasheet](https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf). Example totals and units come from the [Cisco L40S reference deployment](https://www.cisco.com/c/en/us/td/docs/unified_computing/ucs/UCS_CVDs/flexpod_rag_nim.pdf), [Oracle B300 quickstart](https://github.com/oracle-quickstart/oci-gpu-quickstarts/blob/main/nvidia/B300/README-B300.md), and [GPU Burn source](https://github.com/wilicc/gpu-burn/blob/master/gpu_burn-drv.cpp).
 
+## Show benchmark FLOP/s on the standalone dashboard
+
+To show measured GEMM TFLOP/s alongside the live charts, run the precision benchmark on the target GPU and pass its JSON report to the standalone dashboard. The benchmark section identifies the GPU from the report. Live compute cards continue to use CUPTI measurements.
+
+```bash
+python precision_bench.py --device 0 --size 4096 --repeats 5 --output precision_results.json
+python observer.py --device 0 --web --benchmark-results precision_results.json
+```
+
 ## Standalone sample output
 
 File output is off by default. When you pass `--output gpu0.jsonl` to the standalone observer, it appends one JSON object per CUPTI sample, with `gpu_start_ns`, `gpu_end_ns`, `sample_duration_ms`, `raw_metrics`, `measurements` and coverage. A typical structural example (not measured data):
