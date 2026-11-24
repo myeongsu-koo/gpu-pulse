@@ -48,13 +48,19 @@ class HistoryTests(unittest.TestCase):
 
 
 class CollectorTests(unittest.TestCase):
-    def test_final_drain_decodes_more_than_one_batch(self):
+    def test_final_drain_continues_after_invalid_sample_window(self):
         collector = Mock()
         batch = type("Batch", (list,), {"metrics": []})
-        collector.decode.side_effect = [
+        valid_batches = [
             batch([SimpleNamespace(start_timestamp=i, end_timestamp=i + 1, metric_values=[])])
             for i in (1, 2)
-        ] + [batch()]
+        ]
+        collector.decode.side_effect = [
+            batch([SimpleNamespace(start_timestamp=0, end_timestamp=1_795_536_962_777_872_300,
+                                   metric_values=[])]),
+            *valid_batches,
+            batch(),
+        ]
         module = SimpleNamespace(Collector=lambda **_: collector,
                                  TriggerMode=SimpleNamespace(GPU_TIME_INTERVAL=SimpleNamespace(name="TIME")),
                                  HardwareBufferAppendMode=SimpleNamespace(KEEP_LATEST=0))
@@ -72,7 +78,7 @@ class CollectorTests(unittest.TestCase):
               patch("observer.select_plan", return_value=("test", [])),
               contextlib.redirect_stdout(out)):
             self.assertEqual(run(args), 0)
-        self.assertEqual(collector.decode.call_count, 3)
+        self.assertEqual(collector.decode.call_count, 4)
         rows = [json.loads(line) for line in out.getvalue().splitlines()]
         self.assertEqual([row["gpu_end_ns"] for row in rows], [2, 3])
         self.assertEqual(rows[-1]["gpu"]["uuid"], "GPU-test")

@@ -115,11 +115,13 @@ def select_plan(chip: str, forced_set: str | None, required: list[str]) -> tuple
 
 def capability_report(chip: str) -> dict:
     sets = discover_sets(chip)
+    keys_by_set = {name: {s.key for s in select_for_set(metrics)}
+                   for name, metrics in sets.items()}
     preferred = {}
     for s in SPECS:
         preferred[s.key] = {"requested_metric": s.name,
-                            "sets_with_base": [name for name, metrics in sets.items()
-                                               if s.base in {m.split('.', 1)[0] for m in metrics}]}
+                            "sets_with_base": [name for name, keys in keys_by_set.items()
+                                               if s.key in keys]}
     try:
         best_set, best_specs = choose_set(sets)
         best = {"set": best_set, "metric_names": [s.name for s in best_specs], "coverage": coverage(best_specs)}
@@ -235,6 +237,7 @@ def run(args) -> int:
             elif args.output:
                 file = open(args.output, "a", encoding="utf-8", buffering=1)
             LOG.info("CUPTI PM Sampling started; no workload is launched by this observer")
+            session_start_ns = time.monotonic_ns()
             collector.start()
             started = True
             state.set_status(state="running")
@@ -244,22 +247,25 @@ def run(args) -> int:
             def decode_batch():
                 nonlocal prev_end
                 batch = collector.decode(max_samples=args.max_samples)
-                added = 0
+                session_elapsed_ns = time.monotonic_ns() - session_start_ns
+                decoded = 0
                 for sample in batch:
-                    if sample.end_timestamp <= prev_end or sample.end_timestamp <= sample.start_timestamp:
+                    decoded += 1
+                    duration_ns = sample.end_timestamp - sample.start_timestamp
+                    # A GPU sample window cannot span more than the host sampling session.
+                    if sample.end_timestamp <= prev_end or not 0 < duration_ns <= session_elapsed_ns:
                         continue
                     prev_end = sample.end_timestamp
                     record = emit_sample(sample, batch.metrics, specs, chip, args.device)
                     if inventory:
                         record["gpu"] = inventory
-                    added += 1
                     if args.web:
                         state.push(record)
                     if file:
                         file.write(json.dumps(record, allow_nan=False) + "\n")
                 if file is sys.stdout:
                     file.flush()
-                return added
+                return decoded
 
             while not stop.wait(args.poll_ms / 1000):
                 if args.duration > 0 and time.monotonic() - time_start >= args.duration:
